@@ -1,0 +1,65 @@
+# FastAPI and web framework
+fastapi
+uvicorn[standard]
+python-multipart
+
+# Database
+sqlalchemy[asyncio]
+alembic
+pymysql
+aiomysql
+aiosqlite
+cryptography
+
+# Background tasks
+celery
+redis
+
+# Authentication
+python-jose[cryptography]
+passlib[bcrypt]
+
+# Data validation
+pydantic
+pydantic-settings
+
+# HTTP client
+httpx
+aiohttp
+
+# AI and LangGraph
+openai
+langgraph
+langchain
+langchain-openai
+
+# MCP (Model Context Protocol)
+mcp
+
+# External integrations
+sendgrid
+google-api-python-client
+google-auth-httplib2
+google-auth-oauthlib
+boto3
+stripe
+
+# WebSocket
+python-socketio
+
+# Utilities
+python-dotenv
+structlog
+typer
+
+# Development and testing
+pytest
+pytest-asyncio
+pytest-cov
+faker
+
+# Code quality
+black
+isort
+flake8
+mypy

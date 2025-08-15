@@ -1,0 +1,92 @@
+name: Frontend CI/CD
+
+on:
+  push:
+    branches: [ main, develop ]
+    paths:
+      - 'Rainmaker-frontend/**'
+      - '.github/workflows/frontend.yml'
+  pull_request:
+    branches: [ main ]
+    paths:
+      - 'Rainmaker-frontend/**'
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: Rainmaker-frontend/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./Rainmaker-frontend
+      run: npm ci
+    
+    - name: Lint
+      working-directory: ./Rainmaker-frontend
+      run: npm run lint
+    
+    - name: Type check
+      working-directory: ./Rainmaker-frontend
+      run: npx tsc --noEmit
+    
+    - name: Test
+      working-directory: ./Rainmaker-frontend
+      run: npm run test -- --run --coverage
+    
+    - name: Upload coverage to Codecov
+      uses: codecov/codecov-action@v3
+      with:
+        file: ./Rainmaker-frontend/coverage/lcov.info
+        flags: frontend
+        name: frontend-coverage
+
+  build:
+    needs: test
+    runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
+    
+    steps:
+    - uses: actions/checkout@v4
+    
+    - name: Set up Node.js
+      uses: actions/setup-node@v4
+      with:
+        node-version: '18'
+        cache: 'npm'
+        cache-dependency-path: Rainmaker-frontend/package-lock.json
+    
+    - name: Install dependencies
+      working-directory: ./Rainmaker-frontend
+      run: npm ci
+    
+    - name: Build
+      working-directory: ./Rainmaker-frontend
+      env:
+        VITE_API_URL: ${{ secrets.VITE_API_URL }}
+      run: npm run build
+    
+    - name: Configure AWS credentials
+      uses: aws-actions/configure-aws-credentials@v4
+      with:
+        aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+        aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+        aws-region: us-west-2
+    
+    - name: Deploy to S3
+      working-directory: ./Rainmaker-frontend
+      run: |
+        aws s3 sync dist/ s3://${{ secrets.S3_BUCKET }} --delete
+    
+    - name: Invalidate CloudFront
+      run: |
+        aws cloudfront create-invalidation \
+          --distribution-id ${{ secrets.CLOUDFRONT_DISTRIBUTION_ID }} \
+          --paths "/*"

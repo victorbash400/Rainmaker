@@ -1,0 +1,134 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html {
+    font-family: 'Inter', system-ui, sans-serif;
+  }
+  
+  body {
+    @apply bg-white text-black;
+  }
+}
+
+@layer components {
+  .btn {
+    @apply inline-flex items-center justify-center rounded-lg text-sm font-medium transition-all duration-200 focus-visible:outline-none disabled:opacity-50 disabled:pointer-events-none;
+  }
+  
+  .btn-primary {
+    @apply btn bg-black text-white hover:bg-gray-900 h-9 py-2 px-4;
+  }
+  
+  .btn-secondary {
+    @apply btn bg-gray-100 text-black hover:bg-gray-200 h-9 py-2 px-4;
+  }
+  
+  .btn-outline {
+    @apply btn border border-gray-300 bg-white text-black hover:bg-gray-50 h-9 py-2 px-4;
+  }
+  
+  .input {
+    @apply flex h-9 w-full rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm placeholder:text-gray-400 focus:outline-none focus:border-gray-400 transition-colors;
+  }
+  
+  .card {
+    @apply rounded-xl border border-gray-200 bg-white;
+  }
+  
+  .card-minimal {
+    @apply rounded-lg bg-white;
+  }
+  
+  .card-content {
+    @apply p-6;
+  }
+  
+  .badge {
+    @apply inline-flex items-center rounded-full px-2 py-1 text-xs font-medium;
+  }
+  
+  .badge-active {
+    @apply badge bg-black text-white;
+  }
+  
+  .badge-pending {
+    @apply badge bg-gray-100 text-gray-600;
+  }
+  
+  .badge-success {
+    @apply badge bg-gray-100 text-black;
+  }
+  
+  .badge-error {
+    @apply badge bg-gray-900 text-white;
+  }
+
+  .spinner {
+    @apply inline-block w-4 h-4 border-2 border-gray-300 border-t-black rounded-full animate-spin;
+  }
+
+  .task-line {
+    @apply flex items-center space-x-3 py-2 text-sm;
+  }
+
+  .task-dot {
+    @apply w-2 h-2 rounded-full;
+  }
+
+  .task-dot-pending {
+    @apply task-dot bg-gray-300;
+  }
+
+  .task-dot-active {
+    @apply task-dot bg-black animate-pulse;
+  }
+
+  .task-dot-complete {
+    @apply task-dot bg-black;
+  }
+
+  .workflow-card {
+    @apply border border-gray-200 rounded-lg p-4 hover:border-gray-300 transition-colors cursor-pointer;
+  }
+
+  .agent-status {
+    @apply flex items-center space-x-2 text-sm;
+  }
+
+  .scrollbar-hide {
+    -ms-overflow-style: none;  /* IE and Edge */
+    scrollbar-width: none;  /* Firefox */
+  }
+
+  .scrollbar-hide::-webkit-scrollbar {
+    display: none;  /* Chrome, Safari and Opera */
+  }
+
+  /* Logo reveal animations */
+  @keyframes logoSlide {
+    0% {
+      transform: translateX(400px); /* Start far to the right */
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(0); /* End at natural flex position */
+      opacity: 1;
+    }
+  }
+
+  @keyframes textReveal {
+    0% {
+      clip-path: inset(0 0 0 100%);
+      opacity: 0;
+    }
+    10% {
+      opacity: 1;
+    }
+    100% {
+      clip-path: inset(0 0 0 0);
+      opacity: 1;
+    }
+  }
+}
