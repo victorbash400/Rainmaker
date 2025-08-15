@@ -1,11 +1,9 @@
 import { useState, useEffect, useRef } from 'react'
-import { Play, Pause, RotateCcw, X, Clock, CheckCircle, AlertTriangle, Plus } from 'lucide-react'
+import { Pause, RotateCcw, X, Clock, CheckCircle, AlertTriangle, Plus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { 
   getCampaignPlans, 
   getCampaignExecutionStatus,
-  CampaignPlanSummary,
-  ExecutionStatus,
   createWorkflowStatusWebSocket
 } from '@/services/campaignPlanningService'
 import BrowserViewer from '@/components/BrowserViewer'
@@ -64,8 +62,19 @@ function AIThoughtProcess({ workflowId }: { workflowId: string }) {
   return (
     <div className="space-y-2">
       <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">AI Thinking</div>
-      <div className="text-sm text-black min-h-[3rem] transition-opacity duration-300">
-        {aiReasoning}
+      <div className="text-sm text-black min-h-[3rem] transition-opacity duration-300 relative overflow-hidden">
+        <div className="relative z-0">
+          {aiReasoning}
+        </div>
+        {/* Shimmer effect - above the text */}
+        <div className="absolute inset-0 pointer-events-none z-10">
+          <div className="absolute inset-0 w-24 h-full shimmer-animation" 
+               style={{
+                 background: 'linear-gradient(90deg, transparent 0%, rgba(255,255,255,0.1) 20%, rgba(255,255,255,0.8) 50%, rgba(255,255,255,0.1) 80%, transparent 100%)',
+                 boxShadow: '0 0 10px rgba(255,255,255,0.3)'
+               }}>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -239,7 +248,7 @@ export default function Workflows() {
           })
       )
       
-      setWorkflows(workflowData.filter(Boolean) as WorkflowData[])
+      setWorkflows(workflowData.filter((workflow): workflow is WorkflowData => workflow !== null))
       setError(null)
     } catch (err) {
       console.error('Failed to load workflows:', err)
@@ -370,14 +379,12 @@ export default function Workflows() {
                 {/* Browser Viewer for executing workflows */}
                 {workflow.status === 'executing' && (
                   <div className="mb-6 ml-6">
-                    {console.log(`Showing browser viewer for workflow ${workflow.plan_id} with workflow_id: ${workflow.workflow_id}`)}
-                    
                     <div className="flex space-x-6">
                       {/* Pure Browser Viewer - just the screenshot */}
                       <BrowserViewer 
                         workflowId={workflow.workflow_id}
                         className="flex-1 max-w-2xl"
-                        onStatusChange={(status) => {
+                        onStatusChange={() => {
                           // Handle status updates if needed
                         }}
                       />

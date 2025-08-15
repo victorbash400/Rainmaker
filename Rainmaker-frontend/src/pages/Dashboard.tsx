@@ -415,7 +415,7 @@ export default function Dashboard() {
                             {index > 0 && (
                               <div className={`absolute left-2 -top-3 w-px h-3 ${
                                 planningResponse.completion_percentage >= ([0.25, 0.50, 0.75][index - 1] || 0)
-                                  ? 'bg-green-500' 
+                                  ? 'bg-black' 
                                   : 'bg-gray-200'
                               }`}></div>
                             )}
@@ -424,7 +424,7 @@ export default function Dashboard() {
                               {/* Status indicator */}
                               <div className="relative">
                                 {isCompleted ? (
-                                  <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                                  <div className="w-4 h-4 bg-black rounded-full flex items-center justify-center">
                                     <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                                     </svg>
@@ -450,10 +450,12 @@ export default function Dashboard() {
                     </div>
                     
                     {/* Current Status */}
-                    <div className="mt-4 p-2 bg-gray-50 rounded-lg">
-                      <div className="text-xs font-medium text-gray-700">Current Phase:</div>
-                      <div className="text-xs text-gray-600 capitalize">
-                        {planningResponse.current_phase.replace('_', ' ')}
+                    <div className="mt-6 pt-4 border-t border-gray-100">
+                      <div className="flex items-center space-x-2">
+                        <div className="w-3 h-3 border border-gray-400 border-t-black rounded-full animate-spin"></div>
+                        <div className="text-xs font-medium text-gray-900">
+                          {planningResponse.current_phase.replace('_', ' ')}
+                        </div>
                       </div>
                     </div>
                   </div>

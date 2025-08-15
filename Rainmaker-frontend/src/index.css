@@ -131,4 +131,18 @@
       opacity: 1;
     }
   }
+
+  @keyframes shimmerEffect {
+    0% {
+      transform: translateX(-100%) skewX(-15deg);
+    }
+    100% {
+      transform: translateX(200%) skewX(-15deg);
+    }
+  }
+
+  .shimmer-animation {
+    animation: shimmerEffect 2s ease-in-out infinite;
+  }
+
 }

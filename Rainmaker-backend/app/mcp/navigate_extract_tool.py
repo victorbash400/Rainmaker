@@ -697,7 +697,7 @@ Return ONLY JSON:
                         result = json.loads(json_match.group(0))
                         extracted = result.get("extracted_data", {})
                         
-                        # Clean up extracted data
+                        #  Clean up extracted data
                         cleaned = {}
                         for key, value in extracted.items():
                             if value and value not in ["...", "null", "None", "N/A"]:
