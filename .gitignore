@@ -162,3 +162,6 @@ Thumbs.db
 # IMPORTANT: Keep Kiro files
 !.kiro/
 !.kiro/**/*
+
+# Gemini documentation
+gemini.md

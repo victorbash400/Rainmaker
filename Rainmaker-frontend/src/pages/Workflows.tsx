@@ -7,6 +7,8 @@ import {
   createWorkflowStatusWebSocket
 } from '@/services/campaignPlanningService'
 import BrowserViewer from '@/components/BrowserViewer'
+import EnrichmentViewer from '@/components/EnrichmentViewer'
+import OutreachViewer from '@/components/OutreachViewer'
 
 // AI Thought Process Component
 function AIThoughtProcess({ workflowId }: { workflowId: string }) {
@@ -134,14 +136,64 @@ export default function Workflows() {
               if (workflow.plan_id === data.plan_id) {
                 // Only log significant status changes
                 if (workflow.status !== data.status || workflow.current_phase !== data.current_phase) {
-                  console.log(`Workflow ${data.plan_id}: ${data.current_phase} (${data.status})`)
+                  console.log(`🔄 Workflow ${data.plan_id}: ${data.current_phase} (${data.status})`)
                 }
+                console.log(`📊 All workflow data:`, data)
+                console.log(`🎯 Current phase in data:`, data.current_phase, `Status:`, data.status)
+                
+                // Regenerate stages with updated current_phase
+                const updatedStatus = {
+                  current_phase: data.current_phase,
+                  status: data.status,
+                  metrics: data.metrics || workflow.metrics
+                }
+                
+                const stages = [
+                  {
+                    name: 'hunting',
+                    status: (updatedStatus.current_phase === 'enriching' || updatedStatus.current_phase === 'completed') ? 'complete' as const : 
+                            (updatedStatus.current_phase === 'discovery' || updatedStatus.current_phase === 'hunting') ? 'active' as const : 'pending' as const,
+                    duration: (updatedStatus.current_phase === 'enriching' || updatedStatus.current_phase === 'completed') ? '2m 15s' : undefined
+                  },
+                  {
+                    name: 'enriching',
+                    status: updatedStatus.current_phase === 'completed' ? 'complete' as const :
+                            updatedStatus.current_phase === 'enriching' ? 'active' as const : 'pending' as const,
+                    duration: updatedStatus.current_phase === 'completed' ? '1m 45s' : undefined
+                  },
+                  {
+                    name: 'outreach',
+                    status: (updatedStatus.current_phase === 'conversation' || updatedStatus.current_phase === 'completed') ? 'complete' as const :
+                            (updatedStatus.current_phase === 'outreach' || updatedStatus.current_phase === 'awaiting_reply') ? 'active' as const : 'pending' as const,
+                    duration: (updatedStatus.current_phase === 'conversation' || updatedStatus.current_phase === 'completed') ? '3m 20s' : undefined
+                  },
+                  {
+                    name: 'conversation',
+                    status: updatedStatus.metrics.meetings_scheduled > 0 ? 'complete' as const :
+                            updatedStatus.current_phase === 'conversation' ? 'active' as const : 'pending' as const,
+                    duration: updatedStatus.metrics.meetings_scheduled > 0 ? '12m 30s' : undefined
+                  },
+                  {
+                    name: 'proposal',
+                    status: updatedStatus.metrics.proposals_generated > 0 ? 'complete' as const :
+                            updatedStatus.current_phase === 'proposal' ? 'active' as const : 'pending' as const,
+                    duration: updatedStatus.metrics.proposals_generated > 0 ? '5m 15s' : undefined
+                  },
+                  {
+                    name: 'meeting',
+                    status: updatedStatus.status === 'completed' ? 'complete' as const :
+                            updatedStatus.current_phase === 'meeting' ? 'active' as const : 'pending' as const,
+                    duration: updatedStatus.status === 'completed' ? '45m' : undefined
+                  }
+                ]
+                
                 return {
                   ...workflow,
                   status: data.status,
                   current_phase: data.current_phase,
                   progress_percentage: data.progress_percentage,
-                  metrics: data.metrics || workflow.metrics
+                  metrics: data.metrics || workflow.metrics,
+                  stages: stages
                 }
               }
               return workflow
@@ -193,21 +245,21 @@ export default function Workflows() {
               const stages = [
                 {
                   name: 'hunting',
-                  status: status.metrics.prospects_discovered > 0 ? 'complete' as const : 
+                  status: (status.current_phase === 'enriching' || status.current_phase === 'completed') ? 'complete' as const : 
                           (status.current_phase === 'discovery' || status.current_phase === 'hunting') ? 'active' as const : 'pending' as const,
-                  duration: status.metrics.prospects_discovered > 0 ? '2m 15s' : undefined
+                  duration: (status.current_phase === 'enriching' || status.current_phase === 'completed') ? '2m 15s' : undefined
                 },
                 {
                   name: 'enriching',
-                  status: status.metrics.outreach_sent > 0 ? 'complete' as const :
+                  status: status.current_phase === 'completed' ? 'complete' as const :
                           status.current_phase === 'enriching' ? 'active' as const : 'pending' as const,
-                  duration: status.metrics.outreach_sent > 0 ? '1m 45s' : undefined
+                  duration: status.current_phase === 'completed' ? '1m 45s' : undefined
                 },
                 {
                   name: 'outreach',
-                  status: status.metrics.outreach_sent > 0 ? 'complete' as const :
-                          status.current_phase === 'outreach' ? 'active' as const : 'pending' as const,
-                  duration: status.metrics.outreach_sent > 0 ? '3m 20s' : undefined
+                  status: (status.current_phase === 'conversation' || status.current_phase === 'completed') ? 'complete' as const :
+                          (status.current_phase === 'outreach' || status.current_phase === 'awaiting_reply') ? 'active' as const : 'pending' as const,
+                  duration: (status.current_phase === 'conversation' || status.current_phase === 'completed') ? '3m 20s' : undefined
                 },
                 {
                   name: 'conversation',
@@ -376,32 +428,85 @@ export default function Workflows() {
                   </div>
                 </div>
 
-                {/* Browser Viewer for executing workflows */}
+                {/* Agent Viewers for executing workflows */}
                 {workflow.status === 'executing' && (
                   <div className="mb-6 ml-6">
                     <div className="flex space-x-6">
-                      {/* Pure Browser Viewer - just the screenshot */}
-                      <BrowserViewer 
-                        workflowId={workflow.workflow_id}
-                        className="flex-1 max-w-2xl"
-                        onStatusChange={() => {
-                          // Handle status updates if needed
-                        }}
-                      />
-                      
-                      {/* External status info - clean black text */}
-                      <div className="w-64 space-y-4 pt-4">
-                        <div className="flex items-center space-x-3">
-                          <div className="w-6 h-6 flex items-center justify-center">
-                            <svg className="w-4 h-4 text-black" fill="currentColor" viewBox="0 0 20 20">
-                              <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
-                            </svg>
+                      {/* Show different viewers based on current phase */}
+                      {(workflow.current_phase === 'discovery' || workflow.current_phase === 'hunting') && (
+                        <>
+                          {console.log('🔍 RENDERING BrowserViewer for workflow:', workflow.workflow_id, 'phase:', workflow.current_phase)}
+                          {/* Browser Viewer for prospect hunting */}
+                          <BrowserViewer 
+                            workflowId={workflow.workflow_id}
+                            className="flex-1 max-w-2xl"
+                            onStatusChange={() => {
+                              // Handle status updates if needed
+                            }}
+                          />
+                          
+                          {/* External status info for hunting */}
+                          <div className="w-64 space-y-4 pt-4">
+                            <div className="flex items-center space-x-3">
+                              <div className="w-6 h-6 flex items-center justify-center">
+                                <svg className="w-4 h-4 text-black" fill="currentColor" viewBox="0 0 20 20">
+                                  <path fillRule="evenodd" d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z" clipRule="evenodd" />
+                                </svg>
+                              </div>
+                              <span className="text-sm font-medium text-black">🔍 AI Prospect Hunting</span>
+                            </div>
+                            
+                            <AIThoughtProcess workflowId={workflow.workflow_id} />
                           </div>
-                          <span className="text-sm font-medium text-black">AI Navigation</span>
+                        </>
+                      )}
+                      
+                      {workflow.current_phase === 'enriching' && (
+                        <>
+                          {console.log('🟢 RENDERING EnrichmentViewer for workflow:', workflow.workflow_id, 'phase:', workflow.current_phase)}
+                          {/* Enrichment Viewer for prospect enrichment */}
+                          <EnrichmentViewer 
+                            workflowId={workflow.workflow_id}
+                            className="flex-1 max-w-2xl"
+                            onStatusChange={() => {
+                              // Handle status updates if needed
+                            }}
+                          />
+                          
+                        </>
+                      )}
+                      
+                      {(workflow.current_phase === 'outreach' || workflow.current_phase === 'awaiting_reply') && (
+                        <>
+                          {console.log('📧 RENDERING OutreachViewer for workflow:', workflow.workflow_id, 'phase:', workflow.current_phase)}
+                          {/* Outreach Viewer for email campaigns and reply monitoring */}
+                          <OutreachViewer 
+                            workflowId={workflow.workflow_id}
+                            onComplete={() => {
+                              // Refresh workflow data when outreach completes
+                              loadWorkflows();
+                            }}
+                          />
+                          
+                        </>
+                      )}
+                      
+                      {/* Default view for other phases */}
+                      {!['discovery', 'hunting', 'enriching', 'outreach', 'awaiting_reply'].includes(workflow.current_phase) && (
+                        <div className="flex-1 max-w-2xl">
+                          <div className="bg-gray-50 rounded-lg p-6 min-h-[400px] flex items-center justify-center">
+                            <div className="text-center text-gray-500">
+                              <div className="w-16 h-16 mx-auto mb-4 bg-gray-200 rounded-full flex items-center justify-center">
+                                <svg className="w-8 h-8 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                </svg>
+                              </div>
+                              <h3 className="text-lg font-medium text-gray-900 mb-2">{workflow.current_phase.charAt(0).toUpperCase() + workflow.current_phase.slice(1)} Phase</h3>
+                              <p className="text-sm text-gray-600">Agent working on {workflow.current_phase} tasks</p>
+                            </div>
+                          </div>
                         </div>
-                        
-                        <AIThoughtProcess workflowId={workflow.workflow_id} />
-                      </div>
+                      )}
                     </div>
                   </div>
                 )}
@@ -447,11 +552,6 @@ export default function Workflows() {
                               stage.status === 'error' ? 'text-red-600' : 'text-gray-400'
                             }>
                               {stage.name.charAt(0).toUpperCase() + stage.name.slice(1)} Agent
-                              {stage.status === 'active' && workflow.status === 'executing' && (
-                                <span className="ml-2 text-xs text-blue-600 font-normal">
-                                  • Currently working...
-                                </span>
-                              )}
                             </span>
                             <div className="text-sm text-gray-400">
                               {stage.duration && stage.duration}

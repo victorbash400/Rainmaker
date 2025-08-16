@@ -10,8 +10,11 @@ from datetime import datetime
 from enum import Enum
 import json
 import uuid
+import structlog
 from pydantic import BaseModel, Field, validator
 from app.db.models import ProspectStatus, EventType, CampaignStatus
+
+logger = structlog.get_logger(__name__)
 
 
 class WorkflowStage(str, Enum):
@@ -19,6 +22,7 @@ class WorkflowStage(str, Enum):
     HUNTING = "hunting"
     ENRICHING = "enriching"
     OUTREACH = "outreach"
+    AWAITING_REPLY = "awaiting_reply"
     CONVERSATION = "conversation"
     PROPOSAL = "proposal"
     MEETING = "meeting"
@@ -64,14 +68,20 @@ class HunterResults(BaseModel):
 
 
 class EnrichmentData(BaseModel):
-    """Results from enrichment agent"""
-    company_data: Dict[str, Any] = Field(default_factory=dict)
-    social_profiles: Dict[str, str] = Field(default_factory=dict)
-    event_preferences: Dict[str, Any] = Field(default_factory=dict)
-    budget_signals: Dict[str, Any] = Field(default_factory=dict)
-    contact_info: Dict[str, str] = Field(default_factory=dict)
-    confidence_score: float = 0.0
-    enrichment_sources: List[str] = Field(default_factory=list)
+    """Simple enrichment data focused on event planning context"""
+    # Basic personal/professional info
+    personal_info: Dict[str, Any] = Field(default_factory=dict)
+    company_info: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Event planning specific context
+    event_context: Dict[str, Any] = Field(default_factory=dict)
+    
+    # AI insights and analysis
+    ai_insights: Dict[str, Any] = Field(default_factory=dict)
+    
+    # Research metadata
+    data_sources: List[str] = Field(default_factory=list)
+    citations: List[Dict[str, Any]] = Field(default_factory=list)
     last_enriched: datetime = Field(default_factory=datetime.now)
 
 
@@ -299,6 +309,33 @@ class StateManager:
             raise StateValidationError(f"State validation failed: {str(e)}")
     
     @staticmethod
+    def clean_state_for_persistence(state: RainmakerState) -> RainmakerState:
+        """
+        Clean state by removing any custom fields that aren't part of RainmakerState schema.
+        This prevents serialization issues with campaign-specific or other custom data.
+        """
+        valid_state_fields = {
+            'workflow_id', 'current_stage', 'completed_stages', 'workflow_started_at',
+            'last_updated_at', 'prospect_id', 'prospect_data', 'hunter_results',
+            'enrichment_data', 'outreach_campaigns', 'conversation_summary',
+            'proposal_data', 'meeting_details', 'errors', 'retry_count',
+            'max_retries', 'human_intervention_needed', 'approval_pending',
+            'assigned_human', 'approval_requests', 'manual_overrides',
+            'next_agent', 'skip_stages', 'priority', 'stage_durations',
+            'total_duration', 'api_calls_made', 'rate_limit_status'
+        }
+        
+        # Create clean state with only valid fields
+        clean_state = {}
+        for key, value in state.items():
+            if key in valid_state_fields:
+                clean_state[key] = value
+            else:
+                logger.debug(f"Filtering out custom field from state before persistence: {key}")
+        
+        return RainmakerState(clean_state)
+    
+    @staticmethod
     def serialize_state(state: RainmakerState) -> str:
         """
         Serialize state to JSON string for persistence.
@@ -349,6 +386,85 @@ class StateManager:
                 if field in data and isinstance(data[field], str):
                     data[field] = datetime.fromisoformat(data[field])
             
+            # Re-hydrate Pydantic models from dictionaries
+            if 'prospect_data' in data and data['prospect_data']:
+                if isinstance(data['prospect_data'], dict):
+                    try:
+                        data['prospect_data'] = ProspectData(**data['prospect_data'])
+                    except Exception as e:
+                        # Keep as dict if conversion fails
+                        pass
+            
+            if 'hunter_results' in data and data['hunter_results']:
+                if isinstance(data['hunter_results'], dict):
+                    try:
+                        data['hunter_results'] = HunterResults(**data['hunter_results'])
+                    except Exception as e:
+                        # Keep as dict if conversion fails
+                        pass
+            
+            if 'enrichment_data' in data and data['enrichment_data']:
+                if isinstance(data['enrichment_data'], dict):
+                    try:
+                        data['enrichment_data'] = EnrichmentData(**data['enrichment_data'])
+                    except Exception as e:
+                        # Keep as dict if conversion fails
+                        pass
+
+            if 'outreach_campaigns' in data and data['outreach_campaigns']:
+                campaigns = []
+                for campaign in data['outreach_campaigns']:
+                    if isinstance(campaign, dict):
+                        try:
+                            campaigns.append(OutreachCampaign(**campaign))
+                        except Exception as e:
+                            # Skip invalid campaign data
+                            logger.debug(f"Skipping invalid campaign data: {e}")
+                            continue
+                    elif isinstance(campaign, OutreachCampaign):
+                        campaigns.append(campaign)
+                    # Skip any non-dict, non-OutreachCampaign entries
+                data['outreach_campaigns'] = campaigns
+
+            if 'conversation_summary' in data and data['conversation_summary']:
+                if isinstance(data['conversation_summary'], dict):
+                    try:
+                        data['conversation_summary'] = ConversationSummary(**data['conversation_summary'])
+                    except Exception as e:
+                        # Keep as dict if conversion fails
+                        pass
+
+            if 'proposal_data' in data and data['proposal_data']:
+                if isinstance(data['proposal_data'], dict):
+                    try:
+                        data['proposal_data'] = ProposalData(**data['proposal_data'])
+                    except Exception as e:
+                        # Keep as dict if conversion fails
+                        pass
+
+            if 'meeting_details' in data and data['meeting_details']:
+                if isinstance(data['meeting_details'], dict):
+                    try:
+                        data['meeting_details'] = MeetingDetails(**data['meeting_details'])
+                    except Exception as e:
+                        # Keep as dict if conversion fails
+                        pass
+
+            if 'errors' in data and data['errors']:
+                errors = []
+                for error in data['errors']:
+                    if isinstance(error, dict):
+                        try:
+                            errors.append(AgentError(**error))
+                        except Exception as e:
+                            # Skip invalid error data
+                            logger.debug(f"Skipping invalid error data: {e}")
+                            continue
+                    elif isinstance(error, AgentError):
+                        errors.append(error)
+                    # Skip any non-dict, non-AgentError entries
+                data['errors'] = errors
+
             # Convert nested datetime fields
             if 'enrichment_data' in data and data['enrichment_data']:
                 if 'last_enriched' in data['enrichment_data']:
@@ -359,7 +475,7 @@ class StateManager:
             # Convert error timestamps
             if 'errors' in data:
                 for error in data['errors']:
-                    if 'timestamp' in error and isinstance(error['timestamp'], str):
+                    if isinstance(error, dict) and 'timestamp' in error and isinstance(error['timestamp'], str):
                         error['timestamp'] = datetime.fromisoformat(error['timestamp'])
             
             # Convert enum strings back to enums
@@ -367,11 +483,47 @@ class StateManager:
                 data['current_stage'] = WorkflowStage(data['current_stage'])
             
             if 'completed_stages' in data:
-                data['completed_stages'] = [
-                    WorkflowStage(stage) for stage in data['completed_stages']
-                ]
+                stages = []
+                completed_stages_raw = data['completed_stages']
+                if isinstance(completed_stages_raw, list):
+                    for stage in completed_stages_raw:
+                        try:
+                            if isinstance(stage, str):
+                                stages.append(WorkflowStage(stage))
+                            elif isinstance(stage, WorkflowStage):
+                                stages.append(stage)
+                            # Skip any non-string, non-WorkflowStage entries
+                        except ValueError:
+                            # Skip invalid stage values
+                            logger.debug(f"Skipping invalid stage value: {stage}")
+                            continue
+                else:
+                    # If completed_stages is not a list, initialize as empty list
+                    logger.debug(f"completed_stages is not a list, got: {type(completed_stages_raw)}")
+                data['completed_stages'] = stages
             
-            return RainmakerState(data)
+            # Filter out any custom fields that aren't part of RainmakerState
+            # This prevents issues with campaign-specific data that gets serialized
+            valid_state_fields = {
+                'workflow_id', 'current_stage', 'completed_stages', 'workflow_started_at',
+                'last_updated_at', 'prospect_id', 'prospect_data', 'hunter_results',
+                'enrichment_data', 'outreach_campaigns', 'conversation_summary',
+                'proposal_data', 'meeting_details', 'errors', 'retry_count',
+                'max_retries', 'human_intervention_needed', 'approval_pending',
+                'assigned_human', 'approval_requests', 'manual_overrides',
+                'next_agent', 'skip_stages', 'priority', 'stage_durations',
+                'total_duration', 'api_calls_made', 'rate_limit_status'
+            }
+            
+            # Create filtered data with only valid RainmakerState fields
+            filtered_data = {}
+            for key, value in data.items():
+                if key in valid_state_fields:
+                    filtered_data[key] = value
+                else:
+                    logger.debug(f"Filtering out custom field from state: {key}")
+            
+            return RainmakerState(filtered_data)
             
         except Exception as e:
             raise StateValidationError(f"Failed to deserialize state: {str(e)}")

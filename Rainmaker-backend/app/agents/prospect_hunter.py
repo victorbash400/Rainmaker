@@ -79,6 +79,27 @@ class ProspectHunterAgent:
             logger.info("Prospect hunting completed", 
                        success=prospects_found > 0,
                        prospects_found=prospects_found)
+            
+            # Close browser session to free up resources
+            try:
+                # Use a safer approach for closing the browser
+                if hasattr(enhanced_browser_mcp, 'browser_manager') and enhanced_browser_mcp.browser_manager:
+                    try:
+                        # Try to close gracefully first
+                        enhanced_browser_mcp.browser_manager.close()
+                        logger.info("Browser manager closed after prospect hunting")
+                    except Exception as close_error:
+                        logger.warning("Browser manager close failed, trying enhanced_browser_mcp.close()", error=str(close_error))
+                        try:
+                            enhanced_browser_mcp.close()
+                            logger.info("Enhanced browser MCP closed after prospect hunting")
+                        except Exception as e2:
+                            logger.warning("Failed to close browser session", error=str(e2))
+                else:
+                    logger.info("No browser session to close")
+            except Exception as e:
+                logger.warning("Failed to close browser session", error=str(e))
+            
             return state
             
         except Exception as e:

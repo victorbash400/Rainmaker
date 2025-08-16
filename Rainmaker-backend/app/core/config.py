@@ -42,6 +42,13 @@ class Settings(BaseSettings):
     AWS_S3_BUCKET: Optional[str] = None
     AWS_REGION: str = "us-west-2"
     
+    # Email Configuration
+    EMAIL_ADDRESS: Optional[str] = None
+    EMAIL_PASSWORD: Optional[SecretStr] = None
+    SMTP_SERVER: Optional[str] = None
+    IMAP_SERVER: Optional[str] = None
+    TEST_RECIPIENT_EMAIL: Optional[str] = None
+    
     # Feature Flags
     ENABLE_AUTOMATIC_OUTREACH: bool = False
     REQUIRE_HUMAN_APPROVAL: bool = True

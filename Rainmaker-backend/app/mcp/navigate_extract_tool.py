@@ -1,6 +1,11 @@
 """
 Navigate and Extract Tool - Pure AI-Driven Navigation
 Uses Gemini AI to read pages, make decisions, and extract data without any hardcoded logic
+
+TEMPORARY MODIFICATIONS FOR DEMO/TESTING:
+- max_steps reduced from 20 to 5 (line ~25)
+- Navigation timeouts reduced from 30s/10s to 15s/5s (lines ~49-50, ~666)
+TODO: Revert these changes for production use
 """
 
 import json
@@ -20,7 +25,9 @@ class NavigateExtractTool:
     
     def __init__(self, browser_manager):
         self.browser_manager = browser_manager
-        self.max_steps = 20
+        # TEMPORARY: Reduced from 20 to 5 steps for faster testing/demo
+        # TODO: Remove this limit or make it configurable for production
+        self.max_steps = 5  # Was: 20
 
     async def navigate_and_extract(self, arguments: Dict[str, Any]) -> CallToolResult:
         """Navigate to URL and extract data using pure AI decision making"""
@@ -42,8 +49,10 @@ class NavigateExtractTool:
                 page = self.browser_manager.create_page(headless=headless)
                 self.browser_manager._capture_browser_step(page, "Navigation Started", f"AI navigating to {url}")
                 
-                page.goto(url, wait_until="domcontentloaded", timeout=30000)
-                page.wait_for_load_state("networkidle", timeout=10000)
+                # TEMPORARY: Reduced timeouts for faster testing
+                # TODO: Increase these for production (was 30000 and 10000)
+                page.goto(url, wait_until="domcontentloaded", timeout=15000)  # Was: 30000
+                page.wait_for_load_state("networkidle", timeout=5000)  # Was: 10000
                 
                 self.browser_manager._capture_browser_step(page, "Page Loaded", f"Loaded {url}")
                 
@@ -658,7 +667,8 @@ IMPORTANT: Return ONLY valid JSON, no other text."""
                     return {"success": False, "error": "No URL provided"}
                 
                 try:
-                    page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                    # TEMPORARY: Reduced timeout for faster testing
+                    page.goto(url, wait_until="domcontentloaded", timeout=15000)  # Was: 30000
                     return {"success": True, "action": "navigate", "url": url}
                 except Exception as e:
                     return {"success": False, "error": f"Navigation failed: {str(e)}"}

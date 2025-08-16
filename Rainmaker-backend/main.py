@@ -16,7 +16,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from app.core.config import settings
-from app.api.v1 import prospects, campaigns, conversations, proposals, meetings, auth, campaign_planning, browser_viewer
+from app.api.v1 import prospects, campaigns, conversations, proposals, meetings, auth, campaign_planning, browser_viewer, enrichment_viewer, outreach
 from app.db.session import engine
 from app.db import models
 
@@ -42,8 +42,24 @@ async def lifespan(app: FastAPI):
         import traceback
         traceback.print_exc()
     
+    # Setup enrichment viewer
+    try:
+        from app.api.v1.enrichment_viewer import setup_enrichment_viewer
+        from app.agents.enrichment import set_enrichment_viewer_callback
+        from app.api.v1.enrichment_viewer import enrichment_viewer_callback
+        
+        print("🔧 Setting up enrichment viewer callbacks...")
+        setup_enrichment_viewer()
+        set_enrichment_viewer_callback(enrichment_viewer_callback)
+        print("✅ Enrichment viewer callbacks configured")
+    except Exception as e:
+        print(f"❌ Failed to setup enrichment viewer: {str(e)}")
+        import traceback
+        traceback.print_exc()
+    
     print("✅ Database tables created")
     print("✅ Browser viewer initialized")
+    print("✅ Enrichment viewer initialized")
     print(f"🌐 API running on http://localhost:8000")
     print(f"📚 Documentation available at http://localhost:8000/docs")
     
@@ -81,6 +97,8 @@ app.include_router(proposals.router, prefix="/api/v1/proposals", tags=["proposal
 app.include_router(meetings.router, prefix="/api/v1/meetings", tags=["meetings"])
 app.include_router(campaign_planning.router, prefix="/api/v1/campaign-planning", tags=["campaign-planning"])
 app.include_router(browser_viewer.router, prefix="/api/v1/browser-viewer", tags=["browser-viewer"])
+app.include_router(enrichment_viewer.router, prefix="/api/v1/enrichment-viewer", tags=["enrichment-viewer"])
+app.include_router(outreach.router, prefix="/api/v1/outreach", tags=["outreach"])
 
 
 @app.get("/")

@@ -495,6 +495,11 @@ class TestComplexStateOperations:
         assert "hunter_results" in deserialized
         assert "enrichment_data" in deserialized
         assert "outreach_campaigns" in deserialized
+
+        # Verify Pydantic models are correctly deserialized
+        assert isinstance(deserialized["hunter_results"], HunterResults)
+        assert isinstance(deserialized["enrichment_data"], EnrichmentData)
+        assert isinstance(deserialized["outreach_campaigns"][0], OutreachCampaign)
     
     def test_state_with_errors_and_approvals(self, complex_state):
         """Test state with multiple errors and approval requests"""

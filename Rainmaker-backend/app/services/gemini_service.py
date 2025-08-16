@@ -9,7 +9,7 @@ import os
 from typing import Dict, List, Optional, Any
 from dataclasses import dataclass
 from datetime import datetime, timedelta
-import structlog
+import structlog 
 import google.generativeai as genai
 from google.generativeai.types import HarmCategory, HarmBlockThreshold
 from google.cloud import aiplatform
@@ -183,6 +183,56 @@ class GeminiService:
             user_message=user_message
         )
     
+    async def generate_json_response(
+        self,
+        system_prompt: str,
+        user_message: str,
+        context: Optional[Dict[str, Any]] = None,
+        model: str = "gemini-1.5-flash"
+    ) -> Dict[str, Any]:
+        """
+        Generate a JSON response using Gemini
+        
+        Args:
+            system_prompt: System instructions for the agent
+            user_message: User input or task description
+            context: Additional context data
+            model: Gemini model to use
+            
+        Returns:
+            Parsed JSON response
+        """
+        response_text = await self.generate_agent_response(
+            system_prompt=system_prompt,
+            user_message=user_message,
+            context=context,
+            model=model
+        )
+        
+        try:
+            return json.loads(response_text)
+        except json.JSONDecodeError:
+            logger.warning("Failed to parse JSON response", response=response_text)
+            # Try to extract JSON from response if it's wrapped in markdown code blocks
+            import re
+            
+            # First try to extract from ```json blocks
+            json_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            if json_block_match:
+                try:
+                    return json.loads(json_block_match.group(1))
+                except json.JSONDecodeError:
+                    pass
+            
+            # Fallback to finding any JSON object
+            json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
+            if json_match:
+                try:
+                    return json.loads(json_match.group())
+                except json.JSONDecodeError:
+                    pass
+            return {}
+
     async def extract_requirements_from_conversation(
         self,
         conversation_history: List[Dict[str, str]]
@@ -222,16 +272,10 @@ class GeminiService:
         {conversation_text}
         """
         
-        response = await self.generate_agent_response(
+        return await self.generate_json_response(
             system_prompt=system_prompt,
             user_message=user_message
         )
-        
-        try:
-            return json.loads(response)
-        except json.JSONDecodeError:
-            logger.warning("Failed to parse requirements JSON", response=response)
-            return {}
     
     async def _check_rate_limits(self):
         """Check and enforce rate limits"""

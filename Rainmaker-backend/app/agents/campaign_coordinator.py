@@ -8,10 +8,10 @@ from typing import Dict, List, Optional, Any, Callable
 from datetime import datetime
 from dataclasses import asdict
 
-from app.core.state import RainmakerState, ProspectData, WorkflowStage
+from app.core.state import RainmakerState, ProspectData, WorkflowStage, StateManager
 from app.mcp.database import database_mcp
 from .planning_models import CampaignPlan, CampaignType
-
+ 
 logger = structlog.get_logger(__name__)
 
 # Global callback for workflow status updates
@@ -57,7 +57,11 @@ class CampaignCoordinatorAgent:
             }
             workflow_status_callback(plan_id, status_data)
             self._last_broadcast_time[plan_id] = current_time
-            logger.debug("Broadcasted workflow status update", plan_id=plan_id, status=status_data["status"])
+            logger.info("🔄 Broadcasting workflow status", 
+                        plan_id=plan_id, 
+                        status=status_data["status"],
+                        current_phase=status_data["current_phase"],
+                        workflow_id=status_data["workflow_id"])
         except Exception as e:
             logger.warning("Failed to broadcast workflow status update", error=str(e), plan_id=plan_id)
         
@@ -95,6 +99,7 @@ class CampaignCoordinatorAgent:
             "active_workflows": [],
             "metrics": {
                 "prospects_discovered": 0,
+                "prospects_enriched": 0,
                 "outreach_sent": 0,
                 "meetings_scheduled": 0,
                 "proposals_generated": 0
@@ -131,7 +136,8 @@ class CampaignCoordinatorAgent:
                 "progress_percentage": self._calculate_progress_percentage(state),
                 "metrics": state.get("metrics", {
                     "prospects_discovered": 0,
-                    "outreach_sent": 0,
+                    "prospects_enriched": 0, 
+                    "outreach_sent": 0, 
                     "meetings_scheduled": 0,
                     "proposals_generated": 0
                 }),
@@ -147,6 +153,7 @@ class CampaignCoordinatorAgent:
                 "progress_percentage": 0,
                 "metrics": {
                     "prospects_discovered": 0,
+                    "prospects_enriched": 0,
                     "outreach_sent": 0,
                     "meetings_scheduled": 0,
                     "proposals_generated": 0
@@ -218,7 +225,19 @@ class CampaignCoordinatorAgent:
             "human_intervention_needed": False,
             "approval_pending": False,
             "assigned_human": None,
-            # Custom fields for campaign execution
+            "approval_requests": [],
+            "manual_overrides": {},
+            "next_agent": None,
+            "skip_stages": [],
+            "priority": 5,
+            "stage_durations": {},
+            "total_duration": None,
+            "api_calls_made": {},
+            "rate_limit_status": {}
+        }
+        
+        # Store campaign-specific data separately in execution_state (not in workflow state)
+        execution_state["campaign_context"] = {
             "campaign_plan": plan,
             "target_prospects": plan.objectives.target_prospects,
             "event_types_focus": plan.target_profile.event_types,
@@ -244,47 +263,135 @@ class CampaignCoordinatorAgent:
             execution_state["metrics"]["prospects_discovered"] = prospects_found
             self._broadcast_status_update(plan.plan_id, execution_state)
             
-            # Phase 2: Enrichment for discovered prospects
+            # Close any browser viewers before starting enrichment
+            try:
+                from app.api.v1.browser_viewer import cleanup_workflow_connections
+                workflow_id = execution_state.get("workflow_id")
+                if workflow_id:
+                    cleanup_workflow_connections(workflow_id)
+                    logger.info("🔧 Browser viewer connections cleaned up before enrichment")
+                else:
+                    logger.warning("No workflow_id found in execution state")
+            except Exception as e:
+                logger.warning("Failed to cleanup browser viewer connections", error=str(e))
+            
+            # Phase 2: Enrichment - ALWAYS run enrichment (demo mode)
+            execution_state["current_phase"] = "enriching"
+            execution_state["active_agent"] = "enrichment"
+            
+            logger.info("🧠 Broadcasting enriching phase to frontend", 
+                       current_phase=execution_state["current_phase"],
+                       plan_id=plan.plan_id)
+            self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+            
+            logger.info("🧠 Starting enrichment phase (demo mode)")
+            
             discovered_ids = hunter_state.get("discovered_prospect_ids", [])
+            enriched_count = 0
+            
             if discovered_ids:
-                execution_state["current_phase"] = "enrichment"
-                self._broadcast_status_update(plan.plan_id, execution_state)
-                
+                # Process discovered prospects
                 for prospect_id in discovered_ids[:10]:  # Process top 10
                     # Get prospect data from database
                     prospect_data = await self._get_prospect_by_id(prospect_id)
                     if prospect_data:
-                        enrichment_state = initial_state.copy()
+                        # Create enrichment state with hunter results passed through
+                        enrichment_state = hunter_state.copy()  # Pass hunter results to enrichment
                         enrichment_state["prospect_data"] = prospect_data
+                        enrichment_state["current_stage"] = WorkflowStage.ENRICHING
+                        
+                        logger.info(
+                            "🧠 Starting enrichment for discovered prospect",
+                            prospect_name=prospect_data.name,
+                            prospect_id=prospect_id,
+                            workflow_id=enrichment_state["workflow_id"]
+                        )
                         
                         enriched_state = await enrichment_agent.enrich_prospect(enrichment_state)
+                        
+                        if enriched_state.get("enrichment_data"):
+                            enriched_count += 1
+                            logger.info(
+                                "✅ Enrichment completed successfully",
+                                prospect_name=prospect_data.name
+                            )
+                        else:
+                            logger.warning(
+                                "⚠️ Enrichment failed for prospect",
+                                prospect_name=prospect_data.name,
+                                errors=enriched_state.get("errors", [])
+                            )
+                        
                         execution_state["completed_agents"].append(f"enricher_{prospect_id}")
-            
-            # Phase 3: Outreach to enriched prospects (if enabled in plan)
-            if not plan.execution_strategy.approval_gates or "outreach" not in plan.execution_strategy.approval_gates:
-                execution_state["current_phase"] = "outreach"
-                self._broadcast_status_update(plan.plan_id, execution_state)
+            else:
+                # No prospects found - run demo enrichment anyway
+                logger.info("🧠 No prospects found, running demo enrichment to test the flow")
                 
-                for prospect_id in discovered_ids[:5]:  # Outreach to top 5
-                    prospect_data = await self._get_prospect_by_id(prospect_id)
-                    if prospect_data:
-                        outreach_state = initial_state.copy()
-                        outreach_state["prospect_data"] = prospect_data
-                        
-                        # Get enrichment data if available
-                        enrichment_data = await self._get_enrichment_data(prospect_id)
-                        if enrichment_data:
-                            outreach_state["enrichment_data"] = enrichment_data
-                        
-                        outreach_result = await outreach_agent.execute_outreach(outreach_state)
-                        execution_state["completed_agents"].append(f"outreach_{prospect_id}")
-                        execution_state["metrics"]["outreach_sent"] += 1
-                        self._broadcast_status_update(plan.plan_id, execution_state)
+                # Create demo prospect data with real person
+                import os
+                test_email = os.getenv("TEST_RECIPIENT_EMAIL", "steve@wittgoff.com")
+                demo_prospect = ProspectData(
+                    name="Steve Wittgoff",
+                    email=test_email,  # Use test email for demo
+                    company_name="Wittgoff Real Estate",
+                    location="Chicago, IL",
+                    prospect_type="individual",
+                    source="demo_enrichment"
+                )
+                
+                # Create enrichment state with demo data
+                enrichment_state = hunter_state.copy()
+                enrichment_state["prospect_data"] = demo_prospect
+                enrichment_state["current_stage"] = WorkflowStage.ENRICHING
+                
+                logger.info(
+                    "🧠 Starting demo enrichment",
+                    prospect_name=demo_prospect.name,
+                    workflow_id=enrichment_state["workflow_id"]
+                )
+                
+                enriched_state = await enrichment_agent.enrich_prospect(enrichment_state)
+                
+                if enriched_state.get("enrichment_data"):
+                    enriched_count = 1
+                    # Store enriched prospect for outreach phase
+                    execution_state["enriched_prospects"] = [demo_prospect]
+                    enrichment_key = str(demo_prospect.id or "demo")
+                    execution_state["enrichment_results"] = {
+                        enrichment_key: enriched_state["enrichment_data"]
+                    }
+                    logger.info("✅ Demo enrichment completed successfully", 
+                              enrichment_key=enrichment_key,
+                              has_enrichment_data=bool(enriched_state.get("enrichment_data")))
+                else:
+                    logger.warning("⚠️ Demo enrichment failed")
+                
+                execution_state["completed_agents"].append("enricher_demo")
             
-            execution_state["current_phase"] = "completed"
-            execution_state["status"] = "completed"
-            execution_state["execution_completed_at"] = datetime.now()
+            execution_state["metrics"]["prospects_enriched"] = enriched_count
+            execution_state["active_agent"] = "none"
+            
+            # Keep enriching phase active for a moment so frontend can connect
+            execution_state["metrics"]["prospects_enriched"] = enriched_count
+            execution_state["active_agent"] = "none"
+            
+            # Keep broadcasting enriching phase while enrichment is active
+            # DON'T broadcast intermediate status - let enrichment complete first
+            logger.info("🧠 Enrichment still active - NOT broadcasting intermediate status")
+            
+            logger.info(
+                "📊 Enrichment phase completed",
+                prospects_processed=max(len(discovered_ids[:10]), 1),
+                successfully_enriched=enriched_count
+            )
+            
+            # Continue to outreach phase after enrichment
+            execution_state["current_phase"] = "outreach"
+            execution_state["status"] = "executing"
             self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+            
+            # Execute outreach phase
+            await self._execute_outreach_phase(plan, execution_state)
             
             return {
                 "status": "success",
@@ -341,6 +448,67 @@ class CampaignCoordinatorAgent:
             "message": "Hybrid campaign strategy prepared - ready for multi-phase implementation"
         }
     
+    async def _execute_outreach_phase(self, plan: CampaignPlan, execution_state: Dict[str, Any]):
+        """Execute outreach phase using the workflow orchestrator"""
+        try:
+            logger.info("🚀 Starting outreach phase", plan_id=plan.plan_id)
+            
+            # Get the first enriched prospect for outreach
+            enriched_prospects = execution_state.get("enriched_prospects", [])
+            if not enriched_prospects:
+                logger.warning("No enriched prospects available for outreach")
+                execution_state["current_phase"] = "completed"
+                execution_state["status"] = "completed"
+                execution_state["execution_completed_at"] = datetime.now()
+                self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+                return
+            
+            # Use the workflow orchestrator for outreach
+            from app.services.workflow import rainmaker_workflow
+            from app.core.state import StateManager
+            
+            # Create initial state for outreach workflow
+            prospect_data = enriched_prospects[0]  # Use first prospect
+            initial_state = StateManager.create_initial_state(
+                prospect_data=prospect_data,
+                workflow_id=execution_state["workflow_id"]
+            )
+            
+            # Add enrichment data if available
+            enrichment_data = execution_state.get("enrichment_results", {}).get(str(prospect_data.id or "demo"))
+            if enrichment_data:
+                initial_state["enrichment_data"] = enrichment_data
+                logger.info("✅ Added enrichment data to outreach state", workflow_id=initial_state["workflow_id"])
+            else:
+                logger.warning("⚠️ No enrichment data found for outreach", 
+                             available_keys=list(execution_state.get("enrichment_results", {}).keys()),
+                             prospect_id=str(prospect_data.id or "demo"))
+            
+            # Execute outreach workflow (this will pause at AWAITING_REPLY)
+            logger.info("🔄 Executing outreach workflow", workflow_id=initial_state["workflow_id"])
+            final_state = await rainmaker_workflow._outreach_node(initial_state)
+            
+            # Check if workflow paused at AWAITING_REPLY
+            if final_state.get("current_stage") == "awaiting_reply":
+                logger.info("📧 Outreach sent - workflow paused for reply", workflow_id=initial_state["workflow_id"])
+                execution_state["current_phase"] = "awaiting_reply"
+                execution_state["outreach_sent"] = True
+                execution_state["metrics"]["outreach_sent"] = 1
+                self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+            else:
+                logger.warning("Outreach workflow did not pause as expected")
+                execution_state["current_phase"] = "completed"
+                execution_state["status"] = "completed"
+                execution_state["execution_completed_at"] = datetime.now()
+                self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+                
+        except Exception as e:
+            logger.error("Failed to execute outreach phase", error=str(e), plan_id=plan.plan_id)
+            execution_state["current_phase"] = "failed"
+            execution_state["status"] = "failed"
+            execution_state["error"] = str(e)
+            self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+
     # =============================================================================
     # HELPER METHODS
     # =============================================================================

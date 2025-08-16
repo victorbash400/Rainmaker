@@ -12,7 +12,7 @@ from datetime import datetime, timedelta
 from enum import Enum
 
 import structlog
-from langgraph.graph import StateGraph, Graph
+from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -26,11 +26,9 @@ from app.core.state import (
 from app.core.config import settings
 from app.services.openai_service import OpenAIService
 from app.mcp.web_search import web_search_mcp
-from app.mcp.enrichment import enrichment_mcp
-from app.mcp.email import email_mcp
 from app.mcp.enhanced_playwright_mcp import enhanced_browser_mcp
-from app.mcp.proposal import proposal_mcp
-from app.mcp.calendar import calendar_mcp
+# from app.mcp.proposal import proposal_mcp  # TODO: Create proposal MCP
+# from app.mcp.calendar import calendar_mcp  # TODO: Create calendar MCP
 from app.mcp.database import database_mcp
 from app.db.models import ProspectStatus, CampaignStatus
 
@@ -192,8 +190,8 @@ class RainmakerWorkflow:
             }
         )
         
-        workflow.add_edge("human_escalation", "workflow_complete")
-        workflow.add_finish_edge("workflow_complete")
+        workflow.add_edge("human_escalation", END)
+        workflow.add_edge("workflow_complete", END)
         
         return workflow
     
@@ -265,62 +263,44 @@ class RainmakerWorkflow:
             )
     
     async def _enrichment_node(self, state: RainmakerState) -> RainmakerState:
-        """Enrichment agent node - enrich prospect data"""
+        """Enrichment agent node - enrich prospect data with Gemini AI and real-time reasoning"""
         logger.info("Starting prospect enrichment", workflow_id=state["workflow_id"])
         
         try:
+            # Update stage using StateManager
             state = StateManager.update_stage(state, WorkflowStage.ENRICHING)
             
-            prospect_data = state["prospect_data"]
+            # Import and create enrichment agent instance
+            from app.agents.enrichment import EnrichmentAgent
+            enrichment_agent = EnrichmentAgent()
             
-            # Use enrichment MCP to get detailed prospect data
-            enrichment_result = await enrichment_mcp.server.call_tool(
-                "enrich_prospect",
-                {
-                    "name": prospect_data.name,
-                    "email": prospect_data.email,
-                    "company_name": prospect_data.company_name
-                }
-            )
+            # Execute enrichment with real-time updates and no-fallback error handling
+            enriched_state = await enrichment_agent.enrich_prospect(state)
             
-            if enrichment_result.isError:
-                raise Exception(f"Enrichment failed: {enrichment_result.content[0].text}")
-            
-            enrichment_data = json.loads(enrichment_result.content[0].text)
-            
-            # Create enrichment data object
-            enrichment = EnrichmentData(
-                company_data=enrichment_data.get("company_data", {}),
-                social_profiles=enrichment_data.get("social_profiles", {}),
-                event_preferences=enrichment_data.get("event_preferences", {}),
-                budget_signals=enrichment_data.get("budget_signals", {}),
-                contact_info=enrichment_data.get("contact_info", {}),
-                confidence_score=enrichment_data.get("confidence_score", 0.0),
-                enrichment_sources=enrichment_data.get("sources", [])
-            )
-            
-            state["enrichment_data"] = enrichment
-            
-            # Update prospect in database
-            if prospect_data.id:
-                await database_mcp.server.call_tool("update_prospect", {
-                    "prospect_id": prospect_data.id,
-                    "enrichment_data": enrichment_data,
-                    "status": ProspectStatus.ENRICHED.value
-                })
+            # Validate enrichment results
+            if not enriched_state.get("enrichment_data"):
+                # If no enrichment data, this indicates a critical failure
+                logger.error("Enrichment failed to produce data", workflow_id=state["workflow_id"])
+                return StateManager.add_error(
+                    enriched_state, "enricher", "no_data_produced", 
+                    "Enrichment agent failed to produce enrichment data",
+                    {"error_type": "critical", "requires_escalation": True}
+                )
             
             logger.info(
-                "Prospect enrichment completed",
-                workflow_id=state["workflow_id"],
-                confidence_score=enrichment.confidence_score
+                "Prospect enrichment completed successfully",
+                workflow_id=enriched_state["workflow_id"],
+                sources_count=len(enriched_state["enrichment_data"].data_sources)
             )
             
-            return state
+            return enriched_state
             
         except Exception as e:
-            logger.error("Enrichment failed", error=str(e), workflow_id=state["workflow_id"])
+            # Any exception here indicates a critical system failure
+            logger.error("Enrichment node failed", error=str(e), workflow_id=state["workflow_id"])
             return StateManager.add_error(
-                state, "enricher", "api_failure", str(e)
+                state, "enricher", "system_failure", str(e),
+                {"error_type": "critical", "requires_escalation": True}
             )
     
     async def _outreach_node(self, state: RainmakerState) -> RainmakerState:
@@ -330,70 +310,32 @@ class RainmakerWorkflow:
         try:
             state = StateManager.update_stage(state, WorkflowStage.OUTREACH)
             
-            prospect_data = state["prospect_data"]
-            enrichment_data = state.get("enrichment_data")
+            # Use the real OutreachAgent
+            from app.agents.outreach import OutreachAgent
+            outreach_agent = OutreachAgent()
             
-            # Determine outreach channel based on available contact info
-            channel = "email" if prospect_data.email else "linkedin"
+            # Execute outreach
+            state = await outreach_agent.execute_outreach(state)
             
-            # Create personalized message using enrichment data
-            message_params = {
-                "prospect_name": prospect_data.name,
-                "prospect_email": prospect_data.email,
-                "company_name": prospect_data.company_name,
-                "event_type": getattr(prospect_data, 'event_type', 'event'),
-                "enrichment_data": enrichment_data.dict() if enrichment_data else {}
-            }
-            
-            if channel == "email":
-                # Use email MCP to send personalized email
-                email_result = await email_mcp.server.call_tool(
-                    "send_personalized_email",
-                    message_params
+            # Check if outreach was successful
+            campaigns = state.get("outreach_campaigns", [])
+            if campaigns and campaigns[-1].status == CampaignStatus.SENT:
+                # Email sent successfully - pause workflow for reply
+                state = StateManager.update_stage(state, WorkflowStage.AWAITING_REPLY)
+                
+                # Save state for outreach API endpoints
+                from app.core.persistence import persistence_manager
+                await persistence_manager.save_state(state["workflow_id"], state)
+                logger.info(
+                    "Outreach sent successfully - workflow paused and state saved", 
+                    workflow_id=state["workflow_id"]
                 )
-                
-                if email_result.isError:
-                    raise Exception(f"Email outreach failed: {email_result.content[0].text}")
-                
-                email_data = json.loads(email_result.content[0].text)
-                
             else:
-                # Use enhanced browser MCP for LinkedIn outreach (placeholder)
-                # TODO: Implement LinkedIn messaging through enhanced navigation
-                email_data = {
-                    "subject": f"Event Planning Opportunity - {prospect_data.name}",
-                    "message": message_params.get("message", "LinkedIn outreach message"),
-                    "status": "scheduled"  # For now, just schedule instead of sending
-                }
-            
-            # Create outreach campaign record
-            campaign = OutreachCampaign(
-                channel=channel,
-                campaign_type="initial_outreach",
-                subject_line=email_data.get("subject"),
-                message_body=email_data.get("message"),
-                personalization_data=message_params,
-                status=CampaignStatus.SENT,
-                sent_at=datetime.now()
-            )
-            
-            # Add to state
-            if "outreach_campaigns" not in state:
-                state["outreach_campaigns"] = []
-            state["outreach_campaigns"].append(campaign)
-            
-            # Update prospect status
-            if prospect_data.id:
-                await database_mcp.server.call_tool("update_prospect", {
-                    "prospect_id": prospect_data.id,
-                    "status": ProspectStatus.CONTACTED.value
-                })
-            
-            logger.info(
-                "Outreach campaign completed", 
-                workflow_id=state["workflow_id"],
-                channel=channel
-            )
+                # Outreach failed - let error handling take over
+                logger.warning(
+                    "Outreach failed or no campaigns created",
+                    workflow_id=state["workflow_id"]
+                )
             
             return state
             
@@ -467,10 +409,23 @@ class RainmakerWorkflow:
                 "requirements": requirements
             }
             
-            proposal_result = await proposal_mcp.server.call_tool(
-                "generate_proposal",
-                proposal_params
-            )
+            # TODO: Implement proposal MCP
+            # proposal_result = await proposal_mcp.server.call_tool(
+            #     "generate_proposal",
+            #     proposal_params
+            # )
+            
+            # Mock proposal result for now
+            proposal_result = type('MockResult', (), {
+                'isError': False,
+                'content': [type('MockContent', (), {'text': json.dumps({
+                    "total_price": 15000,
+                    "venue_details": {"name": "Mock Venue"},
+                    "package_details": {"services": ["planning", "coordination"]},
+                    "pdf_url": "mock_proposal.pdf",
+                    "mood_board_url": "mock_mood_board.jpg"
+                })})()]
+            })()
             
             if proposal_result.isError:
                 raise Exception(f"Proposal generation failed: {proposal_result.content[0].text}")
@@ -524,10 +479,21 @@ class RainmakerWorkflow:
                 "duration_minutes": 60
             }
             
-            meeting_result = await calendar_mcp.server.call_tool(
-                "schedule_meeting",
-                meeting_params
-            )
+            # TODO: Implement calendar MCP
+            # meeting_result = await calendar_mcp.server.call_tool(
+            #     "schedule_meeting",
+            #     meeting_params
+            # )
+            
+            # Mock meeting result for now
+            meeting_result = type('MockResult', (), {
+                'isError': False,
+                'content': [type('MockContent', (), {'text': json.dumps({
+                    "scheduled_at": (datetime.now() + timedelta(days=7)).isoformat(),
+                    "meeting_url": "https://meet.google.com/mock-meeting",
+                    "calendar_event_id": "mock_event_123"
+                })})()]
+            })()
             
             if meeting_result.isError:
                 raise Exception(f"Meeting scheduling failed: {meeting_result.content[0].text}")
@@ -653,16 +619,48 @@ class RainmakerWorkflow:
             return "enricher"
     
     def _route_from_enricher(self, state: RainmakerState) -> str:
-        """Route from enricher agent"""
-        if state.get("errors") and state.get("retry_count", 0) >= state.get("max_retries", 3):
-            return "escalate"
-        elif state.get("errors"):
-            return "error_handler"
+        """Route from enricher agent - handles new no-fallback error handling"""
+        errors = state.get("errors", [])
+        
+        if errors:
+            latest_error = errors[-1]
+            
+            # Check for critical enrichment errors (Gemini/Sonar failures)
+            if (latest_error.agent_name == "enricher" and 
+                latest_error.details.get("error_type") == "critical"):
+                logger.warning(
+                    "Critical enrichment error - escalating immediately",
+                    workflow_id=state.get("workflow_id"),
+                    error_type=latest_error.error_type,
+                    error_message=latest_error.error_message
+                )
+                return "escalate"  # Immediate escalation for critical failures
+            
+            # Standard retry logic for non-critical errors
+            if state.get("retry_count", 0) >= state.get("max_retries", 3):
+                return "escalate"
+            else:
+                return "error_handler"
+        
+        # Check for approval pending
         elif state.get("approval_pending"):
             return "approval"
+        
+        # Validate enrichment data exists
         elif not state.get("enrichment_data"):
-            return "escalate"  # Enrichment failed
+            logger.warning(
+                "No enrichment data produced - escalating",
+                workflow_id=state.get("workflow_id")
+            )
+            return "escalate"  # No enrichment data indicates failure
+        
+        # Success path - continue to outreach
         else:
+            logger.info(
+                "Enrichment successful - routing to outreach",
+                workflow_id=state.get("workflow_id"),
+                data_sources=len(state["enrichment_data"].data_sources)
+            )
             return "outreach"
     
     def _route_from_outreach(self, state: RainmakerState) -> str:
@@ -673,6 +671,9 @@ class RainmakerWorkflow:
             return "error_handler"
         elif state.get("approval_pending"):
             return "approval"
+        elif state.get("current_stage") == WorkflowStage.AWAITING_REPLY:
+            # Workflow pauses here - should END until manually resumed
+            return END
         else:
             return "conversation"
     

@@ -1,5 +1,5 @@
 """
-Advanced Proposal Agent powered by GPT-5 Nano with MCP integration.
+Advanced Proposal Agent powered by gemini with MCP integration.
 
 This agent generates comprehensive, dynamic event proposals with intelligent pricing,
 customized packages, vendor integration, and professional presentation materials
@@ -20,7 +20,7 @@ from app.services.openai_service import openai_service
 from app.mcp.proposal import proposal_mcp
 from app.mcp.file_storage import file_storage_mcp
 from app.mcp.database import database_mcp
-from app.db.models import ProspectStatus
+from app.db.models import ProspectStatus 
 
 logger = structlog.get_logger(__name__)
 
