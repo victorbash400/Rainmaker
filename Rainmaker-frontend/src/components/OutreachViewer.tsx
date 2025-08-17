@@ -32,6 +32,10 @@ type OutreachStage =
   | 'awaiting_reply'
   | 'checking'
   | 'reply_found'
+  | 'awaiting_overview'
+  | 'overview_requesting'
+  | 'checking_overview'
+  | 'overview_received'
   | 'complete'
   | 'error';
 
@@ -41,17 +45,63 @@ interface ReplyAnalysis {
   can_proceed: boolean;
 }
 
+interface EventOverview {
+  event_details: {
+    event_type?: string;
+    date_timeframe?: string;
+    guest_count?: string;
+    budget_range?: string;
+    venue_preferences?: string;
+    special_requirements?: string;
+    themes_vision?: string;
+  };
+  analysis_summary: string;
+  has_sufficient_details: boolean;
+  can_proceed_to_proposal: boolean;
+}
+
 const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete }) => {
   const [stage, setStage] = useState<OutreachStage>('analyzing');
   const [campaign, setCampaign] = useState<Campaign | null>(null);
   const [replyAnalysis, setReplyAnalysis] = useState<ReplyAnalysis | null>(null);
+  const [eventOverview, setEventOverview] = useState<EventOverview | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [initialized, setInitialized] = useState(false);
 
-  // Simulate initial outreach flow
+  // Check workflow status and handle existing workflows
   useEffect(() => {
+    if (!initialized) {
+      checkWorkflowStatus();
+    }
+  }, [initialized]);
+
+  const checkWorkflowStatus = async () => {
+    try {
+      // Check if workflow already has outreach status
+      const status = await fetchOutreachStatus();
+      if (status.campaign_sent) {
+        // Workflow already has a campaign, jump to awaiting reply
+        setCampaign({
+          subject_line: status.subject_line,
+          message_body: 'Email content preview...',
+          status: status.campaign_status,
+          sent_at: status.sent_at
+        });
+        setStage('awaiting_reply');
+        setInitialized(true);
+        return;
+      }
+    } catch (statusError) {
+      console.warn('Could not fetch outreach status, starting simulation:', statusError);
+    }
+    
+    // If no existing campaign, simulate the flow
     simulateOutreachFlow();
-  }, []);
+    
+    // Mark as initialized to prevent re-runs
+    setInitialized(true);
+  };
 
   const simulateOutreachFlow = async () => {
     try {
@@ -158,6 +208,73 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
     }
   };
 
+  const requestOverview = async () => {
+    setLoading(true);
+    setStage('overview_requesting');
+    
+    try {
+      const response = await fetch(`/api/v1/outreach/${workflowId}/request-overview`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to request overview');
+      }
+
+      const result = await response.json();
+      setStage('awaiting_overview');
+      
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to request overview');
+      setStage('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const checkOverviewReply = async () => {
+    setLoading(true);
+    setStage('checking_overview');
+    
+    try {
+      const response = await fetch(`/api/v1/outreach/${workflowId}/check-overview-reply`, {
+        method: 'POST',
+        headers: {
+          'Authorization': `Bearer ${localStorage.getItem('token')}`,
+          'Content-Type': 'application/json'
+        }
+      });
+
+      if (!response.ok) {
+        throw new Error('Failed to check for overview reply');
+      }
+
+      const result = await response.json();
+      
+      if (result.status === 'no_reply_found') {
+        // Return to awaiting overview state
+        setStage('awaiting_overview');
+      } else if (result.status === 'overview_received') {
+        setEventOverview({
+          event_details: result.event_details,
+          analysis_summary: result.analysis_summary,
+          has_sufficient_details: result.has_sufficient_details,
+          can_proceed_to_proposal: result.can_proceed_to_proposal
+        });
+        setStage('overview_received');
+      }
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Failed to check overview reply');
+      setStage('error');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const proceedToPlan = async () => {
     setLoading(true);
     
@@ -206,6 +323,14 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
         return <Loader2 className="w-6 h-6 animate-spin" />;
       case 'reply_found':
         return <MessageSquare className="w-6 h-6" />;
+      case 'overview_requesting':
+        return <Send className="w-6 h-6 animate-pulse" />;
+      case 'awaiting_overview':
+        return <Clock className="w-6 h-6" />;
+      case 'checking_overview':
+        return <Loader2 className="w-6 h-6 animate-spin" />;
+      case 'overview_received':
+        return <MessageSquare className="w-6 h-6" />;
       case 'complete':
         return <CheckCircle className="w-6 h-6 text-green-500" />;
       case 'error':
@@ -229,6 +354,14 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
         return 'Checking for new replies...';
       case 'reply_found':
         return 'Reply received and analyzed!';
+      case 'overview_requesting':
+        return 'Sending event overview request...';
+      case 'awaiting_overview':
+        return 'Overview request sent! Awaiting event details.';
+      case 'checking_overview':
+        return 'Checking for overview response...';
+      case 'overview_received':
+        return 'Event overview received and analyzed!';
       case 'complete':
         return 'Great! The workflow will now proceed...';
       case 'error':
@@ -291,62 +424,9 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                   ease: "easeInOut" 
                 }}
               >
-                <div className="w-20 h-20 bg-white rounded-2xl shadow-lg border border-gray-100 flex items-center justify-center relative overflow-hidden">
-                  {/* Background glow effect */}
-                  <motion.div
-                    className={`absolute inset-0 bg-gradient-to-br ${
-                      stage === 'sending' ? 'from-blue-50 to-indigo-50' : 'from-gray-50 to-slate-50'
-                    }`}
-                    animate={{ opacity: [0.3, 0.6, 0.3] }}
-                    transition={{ duration: 2, repeat: Infinity }}
-                  />
-                  
+                <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center">
                   {/* Mail icon */}
-                  <Mail className="w-8 h-8 text-gray-700 relative z-10" />
-                  
-                  {/* Send effect for sending stage */}
-                  {stage === 'sending' && (
-                    <>
-                      <motion.div
-                        className="absolute -right-2 -top-2 w-6 h-6 bg-blue-500 rounded-full flex items-center justify-center"
-                        initial={{ scale: 0, opacity: 0 }}
-                        animate={{ scale: [0, 1, 0], opacity: [0, 1, 0] }}
-                        transition={{ duration: 1.5, repeat: Infinity, delay: 0.5 }}
-                      >
-                        <Send className="w-3 h-3 text-white" />
-                      </motion.div>
-                      
-                      {/* Flying dots */}
-                      {[...Array(3)].map((_, i) => (
-                        <motion.div
-                          key={i}
-                          className="absolute w-1.5 h-1.5 bg-blue-400 rounded-full"
-                          initial={{ 
-                            x: 0, 
-                            y: 0, 
-                            opacity: 0,
-                            scale: 0
-                          }}
-                          animate={{ 
-                            x: [0, 30, 60],
-                            y: [0, -10, -5],
-                            opacity: [0, 1, 0],
-                            scale: [0, 1, 0]
-                          }}
-                          transition={{ 
-                            duration: 2, 
-                            repeat: Infinity, 
-                            delay: i * 0.3,
-                            ease: "easeOut"
-                          }}
-                          style={{
-                            right: '10px',
-                            top: '10px'
-                          }}
-                        />
-                      ))}
-                    </>
-                  )}
+                  <Mail className="w-8 h-8 text-black" />
                 </div>
               </motion.div>
             </div>
@@ -373,7 +453,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
             {/* Progress Bar */}
             <div className="bg-gray-100 h-2 rounded-full overflow-hidden max-w-md mx-auto">
               <motion.div
-                className="bg-gradient-to-r from-gray-700 to-gray-900 h-full rounded-full"
+                className="bg-black h-full rounded-full"
                 initial={{ width: '0%' }}
                 animate={{ width: '100%' }}
                 transition={{ duration: 3, ease: "easeInOut" }}
@@ -402,47 +482,15 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                 }}
                 className="relative"
               >
-                <div className="w-20 h-20 bg-white rounded-2xl shadow-lg border border-gray-100 flex items-center justify-center relative overflow-hidden">
-                  {/* Success glow */}
-                  <motion.div
-                    className="absolute inset-0 bg-gradient-to-br from-green-50 to-emerald-50"
-                    animate={{ opacity: [0.3, 0.7, 0.3] }}
-                    transition={{ duration: 3, repeat: Infinity }}
-                  />
-                  
+                <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center">
                   {/* Checkmark */}
                   <motion.div
                     initial={{ scale: 0 }}
                     animate={{ scale: 1 }}
                     transition={{ delay: 0.5, type: "spring", damping: 10 }}
                   >
-                    <CheckCircle className="w-8 h-8 text-green-600 relative z-10" />
+                    <CheckCircle className="w-8 h-8 text-black" />
                   </motion.div>
-                  
-                  {/* Success particles */}
-                  {[...Array(6)].map((_, i) => (
-                    <motion.div
-                      key={i}
-                      className="absolute w-1 h-1 bg-green-400 rounded-full"
-                      initial={{ 
-                        scale: 0,
-                        x: 0,
-                        y: 0,
-                        opacity: 0
-                      }}
-                      animate={{ 
-                        scale: [0, 1, 0],
-                        x: [0, (Math.cos(i * 60 * Math.PI / 180) * 30)],
-                        y: [0, (Math.sin(i * 60 * Math.PI / 180) * 30)],
-                        opacity: [0, 1, 0]
-                      }}
-                      transition={{ 
-                        duration: 1.5, 
-                        delay: 0.7 + (i * 0.1),
-                        ease: "easeOut"
-                      }}
-                    />
-                  ))}
                 </div>
               </motion.div>
             </div>
@@ -477,8 +525,8 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
               <motion.button
                 onClick={checkForReplies}
                 disabled={loading}
-                className="bg-gray-900 hover:bg-black disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 mx-auto transition-all duration-200 shadow-sm"
-                whileHover={{ scale: 1.01, y: -1 }}
+                className="bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 mx-auto transition-all duration-200"
+                whileHover={{ scale: 1.01 }}
                 whileTap={{ scale: 0.99 }}
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -515,6 +563,317 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
           </motion.div>
         )}
 
+        {/* Overview Requesting Stage */}
+        {stage === 'overview_requesting' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* Follow-up Email Animation */}
+            <div className="flex justify-center">
+              <motion.div
+                className="relative"
+                animate={{ 
+                  rotate: [0, 1, -1, 0]
+                }}
+                transition={{ 
+                  duration: 2, 
+                  repeat: Infinity, 
+                  ease: "easeInOut" 
+                }}
+              >
+                <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center relative">
+                  {/* Mail icon */}
+                  <Mail className="w-8 h-8 text-black" />
+                  
+                  {/* Follow-up indicator */}
+                  <motion.div
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-black rounded-full flex items-center justify-center"
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: 0.5 }}
+                  >
+                    <span className="text-xs text-white font-bold">2</span>
+                  </motion.div>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Status Text */}
+            <div className="text-center space-y-3">
+              <motion.h4 
+                className="text-lg font-medium text-gray-900"
+                animate={{ opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                Crafting Follow-up
+              </motion.h4>
+              
+              <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
+                Creating a personalized follow-up email to gather event details and requirements.
+              </p>
+            </div>
+
+            {/* Progress indicator */}
+            <div className="bg-gray-100 h-2 rounded-full overflow-hidden max-w-md mx-auto">
+              <motion.div
+                className="bg-black h-full rounded-full"
+                initial={{ width: '0%' }}
+                animate={{ width: '100%' }}
+                transition={{ duration: 2, ease: "easeInOut" }}
+              />
+            </div>
+          </motion.div>
+        )}
+
+        {/* Awaiting Overview Stage */}
+        {stage === 'awaiting_overview' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* Success Animation with follow-up indicator */}
+            <div className="flex justify-center">
+              <motion.div
+                initial={{ scale: 0, opacity: 0 }}
+                animate={{ scale: 1, opacity: 1 }}
+                transition={{ 
+                  type: "spring", 
+                  damping: 15, 
+                  stiffness: 300,
+                  delay: 0.2 
+                }}
+                className="relative"
+              >
+                <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center relative">
+                  {/* Checkmark */}
+                  <motion.div
+                    initial={{ scale: 0 }}
+                    animate={{ scale: 1 }}
+                    transition={{ delay: 0.5, type: "spring", damping: 10 }}
+                  >
+                    <CheckCircle className="w-8 h-8 text-black" />
+                  </motion.div>
+                  
+                  {/* Follow-up email indicator */}
+                  <motion.div
+                    className="absolute -top-1 -right-1 w-4 h-4 bg-black rounded-full flex items-center justify-center"
+                    initial={{ scale: 0, opacity: 0 }}
+                    animate={{ scale: 1, opacity: 1 }}
+                    transition={{ delay: 0.8 }}
+                  >
+                    <span className="text-xs text-white font-bold">2</span>
+                  </motion.div>
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Success Message */}
+            <div className="text-center space-y-2">
+              <motion.h4 
+                className="text-lg font-medium text-gray-900"
+                initial={{ opacity: 0, y: 10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 0.8 }}
+              >
+                Follow-up Sent Successfully!
+              </motion.h4>
+              
+              <motion.div 
+                className="text-sm text-gray-600 space-y-1 max-w-md mx-auto"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1 }}
+              >
+                <p>We've requested detailed event information including:</p>
+                <div className="flex flex-wrap justify-center gap-2 mt-2">
+                  {['Event Type', 'Timeline', 'Guest Count', 'Budget'].map((item, i) => (
+                    <motion.span
+                      key={item}
+                      className="px-2 py-1 bg-gray-100 text-gray-700 rounded-full text-xs font-medium"
+                      initial={{ opacity: 0, scale: 0.8 }}
+                      animate={{ opacity: 1, scale: 1 }}
+                      transition={{ delay: 1.2 + (i * 0.1) }}
+                    >
+                      {item}
+                    </motion.span>
+                  ))}
+                </div>
+              </motion.div>
+            </div>
+
+            {/* Action Button */}
+            <div className="text-center py-4">
+              <motion.button
+                onClick={checkOverviewReply}
+                disabled={loading}
+                className="bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 mx-auto transition-all duration-200"
+                whileHover={{ scale: 1.01 }}
+                whileTap={{ scale: 0.99 }}
+                initial={{ opacity: 0, y: 20 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ delay: 1.4 }}
+              >
+                {loading ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Search className="w-4 h-4" />
+                )}
+                Check for Event Details
+              </motion.button>
+              <motion.p 
+                className="text-xs text-gray-400 mt-3"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                transition={{ delay: 1.6 }}
+              >
+                Click when you've received the event overview to continue
+              </motion.p>
+            </div>
+          </motion.div>
+        )}
+
+        {/* Checking Overview Stage */}
+        {stage === 'checking_overview' && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            {/* Analyzing Animation */}
+            <div className="flex justify-center">
+              <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center">
+                {/* Search icon with animation */}
+                <motion.div
+                  animate={{ rotate: 360 }}
+                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
+                >
+                  <Search className="w-8 h-8 text-black" />
+                </motion.div>
+              </div>
+            </div>
+
+            {/* Status Text */}
+            <div className="text-center space-y-3">
+              <motion.h4 
+                className="text-lg font-medium text-gray-900"
+                animate={{ opacity: [0.7, 1, 0.7] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                Analyzing Event Details
+              </motion.h4>
+              
+              <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
+                AI is processing the event overview and extracting key requirements for proposal generation.
+              </p>
+            </div>
+
+            {/* Progress indicator */}
+            <div className="bg-gray-100 h-2 rounded-full overflow-hidden max-w-md mx-auto">
+              <motion.div
+                className="bg-black h-full rounded-full w-8"
+                animate={{ 
+                  x: ['-2rem', 'calc(100% + 2rem)']
+                }}
+                transition={{ 
+                  duration: 2, 
+                  repeat: Infinity, 
+                  ease: "easeInOut" 
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
+
+        {/* Overview Received Stage */}
+        {stage === 'overview_received' && eventOverview && (
+          <motion.div
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            className="space-y-6"
+          >
+            <div className="bg-gray-50 p-4 rounded-lg border border-gray-100">
+              <div className="flex items-center gap-2 mb-4">
+                <MessageSquare className="w-5 h-5 text-gray-700" />
+                <span className="font-medium text-gray-800">Event Overview Analysis</span>
+              </div>
+              
+              <div className="space-y-4">
+                <div>
+                  <span className="text-sm font-medium text-gray-600 block mb-2">Summary:</span>
+                  <p className="text-sm text-gray-700 leading-relaxed">{eventOverview.analysis_summary}</p>
+                </div>
+                
+                {Object.keys(eventOverview.event_details).length > 0 && (
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {eventOverview.event_details.event_type && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Event Type</span>
+                        <p className="text-sm text-gray-700">{eventOverview.event_details.event_type}</p>
+                      </div>
+                    )}
+                    {eventOverview.event_details.date_timeframe && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Timeline</span>
+                        <p className="text-sm text-gray-700">{eventOverview.event_details.date_timeframe}</p>
+                      </div>
+                    )}
+                    {eventOverview.event_details.guest_count && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Guest Count</span>
+                        <p className="text-sm text-gray-700">{eventOverview.event_details.guest_count}</p>
+                      </div>
+                    )}
+                    {eventOverview.event_details.budget_range && (
+                      <div>
+                        <span className="text-xs font-medium text-gray-500 uppercase tracking-wide">Budget</span>
+                        <p className="text-sm text-gray-700">{eventOverview.event_details.budget_range}</p>
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {eventOverview.can_proceed_to_proposal && (
+              <div className="text-center py-6">
+                <motion.button
+                  onClick={proceedToPlan}
+                  disabled={loading}
+                  className="bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 mx-auto transition-all duration-200"
+                  whileHover={{ scale: 1.01 }}
+                  whileTap={{ scale: 0.99 }}
+                >
+                  {loading ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <>
+                      <ThumbsUp className="w-4 h-4" />
+                      Create Proposal
+                      <ArrowRight className="w-4 h-4" />
+                    </>
+                  )}
+                </motion.button>
+                <p className="text-xs text-gray-400 mt-3">
+                  Sufficient details received! Ready to create proposal.
+                </p>
+              </div>
+            )}
+
+            {!eventOverview.can_proceed_to_proposal && (
+              <div className="text-center py-6">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
+                  <p className="text-sm text-yellow-800">
+                    Need more details to create a comprehensive proposal. Consider following up for clarification.
+                  </p>
+                </div>
+              </div>
+            )}
+          </motion.div>
+        )}
+
         {/* Reply Found Stage */}
         {stage === 'reply_found' && replyAnalysis && (
           <motion.div
@@ -546,9 +905,9 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
             {replyAnalysis.can_proceed && (
               <div className="text-center py-6">
                 <motion.button
-                  onClick={proceedToPlan}
+                  onClick={requestOverview}
                   disabled={loading}
-                  className="bg-gray-900 hover:bg-black disabled:bg-gray-400 text-white px-6 py-2.5 rounded-lg font-medium flex items-center gap-2 mx-auto transition-all duration-200"
+                  className="bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 mx-auto transition-all duration-200"
                   whileHover={{ scale: 1.01 }}
                   whileTap={{ scale: 0.99 }}
                 >
@@ -556,14 +915,14 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                     <Loader2 className="w-4 h-4 animate-spin" />
                   ) : (
                     <>
-                      <ThumbsUp className="w-4 h-4" />
-                      Prepare Plan
+                      <Mail className="w-4 h-4" />
+                      Ask for Event Overview
                       <ArrowRight className="w-4 h-4" />
                     </>
                   )}
                 </motion.button>
                 <p className="text-xs text-gray-400 mt-3">
-                  Prospect is interested! Continue to proposal generation.
+                  Prospect is interested! Let's gather event details.
                 </p>
               </div>
             )}

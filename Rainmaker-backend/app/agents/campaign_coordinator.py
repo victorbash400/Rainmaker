@@ -125,12 +125,14 @@ class CampaignCoordinatorAgent:
         return result
     
     def get_campaign_execution_status(self, plan_id: str) -> Dict[str, Any]:
-        """Get real-time execution status for a campaign"""
+        """Get execution status for a campaign"""
         if plan_id in self.executing_campaigns:
             state = self.executing_campaigns[plan_id]
+            workflow_id = state.get("workflow_id", f"campaign_{plan_id}_{datetime.now().timestamp()}")
+            
             return {
                 "plan_id": plan_id,
-                "workflow_id": state.get("workflow_id", f"campaign_{plan_id}_{datetime.now().timestamp()}"),
+                "workflow_id": workflow_id,
                 "status": state.get("status", "ready"),
                 "current_phase": state.get("current_phase", "planning_complete"),
                 "progress_percentage": self._calculate_progress_percentage(state),

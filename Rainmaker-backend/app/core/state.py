@@ -24,6 +24,8 @@ class WorkflowStage(str, Enum):
     OUTREACH = "outreach"
     AWAITING_REPLY = "awaiting_reply"
     CONVERSATION = "conversation"
+    AWAITING_OVERVIEW = "awaiting_overview"
+    AWAITING_OVERVIEW_REPLY = "awaiting_overview_reply"
     PROPOSAL = "proposal"
     MEETING = "meeting"
     COMPLETED = "completed"
@@ -97,6 +99,10 @@ class OutreachCampaign(BaseModel):
     sent_at: Optional[datetime] = None
     opened_at: Optional[datetime] = None
     replied_at: Optional[datetime] = None
+    # Email thread tracking for back-and-forth conversations
+    thread_id: Optional[str] = None  # Email thread identifier
+    message_id: Optional[str] = None  # Specific message ID for tracking
+    parent_campaign_id: Optional[int] = None  # Link to original campaign in sequence
 
 
 class ConversationSummary(BaseModel):

@@ -293,17 +293,22 @@ export default function Dashboard() {
                                           timestamp: new Date().toLocaleTimeString()
                                         })
                                         
-                                        // Navigate immediately for better UX with multiple fallbacks
-                                        console.log('Navigating to /workflows immediately')
-                                        try {
-                                          navigate('/workflows')
-                                          console.log('React Router navigation successful')
-                                        } catch (navError) {
-                                          console.error('React Router navigation failed:', navError)
-                                          // Fallback to window.location
-                                          console.log('Using window.location fallback')
-                                          window.location.href = '/workflows'
-                                        }
+                                        // Navigate to workflows page
+                                        console.log('Campaign execution successful, navigating to workflows')
+                                        
+                                        // Small delay to ensure message is added, then navigate
+                                        setTimeout(() => {
+                                          console.log('Attempting navigation to /workflows')
+                                          try {
+                                            navigate('/workflows')
+                                            console.log('React Router navigate() called successfully')
+                                          } catch (navError) {
+                                            console.error('React Router navigation error:', navError)
+                                            // Hard redirect as fallback
+                                            console.log('Falling back to window.location')
+                                            window.location.href = '/workflows'
+                                          }
+                                        }, 500)
                                       } catch (error) {
                                         console.error('Failed to execute campaign:', error)
                                         addMessage({

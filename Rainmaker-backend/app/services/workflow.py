@@ -319,7 +319,17 @@ class RainmakerWorkflow:
             
             # Check if outreach was successful
             campaigns = state.get("outreach_campaigns", [])
-            if campaigns and campaigns[-1].status == CampaignStatus.SENT:
+            latest_campaign = campaigns[-1] if campaigns else None
+            
+            # Handle both dict and object formats
+            campaign_successful = False
+            if latest_campaign:
+                if isinstance(latest_campaign, dict):
+                    campaign_successful = latest_campaign.get("status") == "sent"
+                else:
+                    campaign_successful = latest_campaign.status == CampaignStatus.SENT
+            
+            if campaign_successful:
                 # Email sent successfully - pause workflow for reply
                 state = StateManager.update_stage(state, WorkflowStage.AWAITING_REPLY)
                 

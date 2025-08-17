@@ -36,16 +36,20 @@ class OutreachAgent:
                 body=draft["body"]
             )
 
-            # 3. Update state with campaign info
-            campaign = OutreachCampaign(
-                channel="email",
-                campaign_type="initial_outreach",
-                subject_line=draft["subject"],
-                message_body=draft["body"],
-                personalization_data=enrichment_data.ai_insights, # Log what drove the personalization
-                status=CampaignStatus.SENT if result["status"] == "success" else CampaignStatus.FAILED
-            )
-            state["outreach_campaigns"] = state.get("outreach_campaigns", []) + [campaign]
+            # 3. Update state with campaign info as dict for better serialization
+            from datetime import datetime
+            campaign_dict = {
+                "channel": "email",
+                "campaign_type": "initial_outreach",
+                "subject_line": draft["subject"],
+                "message_body": draft["body"],
+                "personalization_data": enrichment_data.ai_insights if enrichment_data else {},
+                "status": "sent" if result["status"] == "success" else "failed",
+                "sent_at": datetime.now().isoformat() if result["status"] == "success" else None,
+                "thread_id": f"thread_{prospect_data.email}_{state.get('workflow_id')}",
+                "message_id": result.get("message_id")
+            }
+            state["outreach_campaigns"] = state.get("outreach_campaigns", []) + [campaign_dict]
             logger.info("Successfully logged outreach campaign to state.")
 
         except Exception as e:
@@ -105,7 +109,7 @@ class OutreachAgent:
     async def _draft_email_with_gemini(self, prospect, enrichment) -> Dict[str, str]:
         """Constructs a prompt and uses Gemini to draft a personalized email.""" 
 
-        logger.info(f"Drafting email for {prospect.name}")
+        logger.info(f"Drafting email for {prospect.name}")  
         
         # Log that enrichment data is being received but ignored for demo
         logger.info(
@@ -164,4 +168,234 @@ class OutreachAgent:
             raise ValueError("Invalid response from Gemini service.")
 
         logger.info(f"Successfully drafted email for {prospect.name}")
+        return response_json
+
+    async def draft_overview_request_email(self, prospect, original_campaign) -> Dict[str, str]:
+        """Drafts a follow-up email asking for event overview after positive initial response."""
+        
+        logger.info(f"Drafting overview request email for {prospect.name}")
+        
+        system_prompt = (
+            "You are an expert event planning sales representative following up after receiving a positive initial response. "
+            "Your task is to write a professional follow-up email asking for event overview details. "
+            "The tone should be enthusiastic yet professional. You want to gather key event information "
+            "to create a customized proposal. Keep it concise and focused."
+        )
+
+        user_message = f"""
+        Please draft a follow-up email requesting event overview details.
+
+        **Prospect Information:**
+        - Name: {prospect.name}
+        - Company: {prospect.company_name or 'Demo Company'}
+        - Email: {prospect.email}
+
+        **Context:**
+        - We sent an initial outreach email about event planning services
+        - The prospect has responded positively showing interest
+        - Now we need to gather event details to create a customized proposal
+
+        **Email Purpose:**
+        Ask for an overview of their event needs including:
+        - Event type and purpose
+        - Approximate date and timeline
+        - Expected guest count
+        - Budget range (if comfortable sharing)
+        - Any specific requirements or vision
+
+        **Instructions:**
+        Create a professional follow-up email that:
+        1. Thanks them for their positive response
+        2. Expresses enthusiasm about working together
+        3. Asks for key event details in a non-overwhelming way
+        4. Suggests a brief call or detailed email response
+        5. Maintains the relationship-building tone
+
+        Return ONLY a valid JSON object with two keys: "subject" and "body".
+        Use "Re: " prefix in subject to maintain email thread.
+
+        Example Response:
+        {{
+            "subject": "Re: Event Planning Partnership - Next Steps",
+            "body": "Hi {prospect.name}, Thank you for your positive response..."
+        }}
+        """
+
+        response_json = await gemini_service.generate_json_response(
+            system_prompt=system_prompt,
+            user_message=user_message
+        )
+
+        if not response_json or "subject" not in response_json or "body" not in response_json:
+            logger.error("Failed to get valid overview request email from Gemini.")
+            raise ValueError("Invalid response from Gemini service.")
+
+        logger.info(f"Successfully drafted overview request email for {prospect.name}")
+        return response_json
+
+    async def send_overview_request(self, state: RainmakerState) -> RainmakerState:
+        """Sends follow-up email requesting event overview details."""
+        logger.info("Sending overview request email", workflow_id=state.get("workflow_id"))
+        
+        prospect_data = state.get("prospect_data")
+        original_campaigns = state.get("outreach_campaigns", [])
+        
+        if not prospect_data or not original_campaigns:
+            logger.warning("Missing prospect data or original campaign. Cannot send overview request.")
+            return state
+            
+        try:
+            # Get the most recent campaign to maintain thread
+            original_campaign = original_campaigns[-1]
+            
+            # Draft overview request email
+            draft = await self.draft_overview_request_email(prospect_data, original_campaign)
+            
+            # Send the follow-up email with thread tracking
+            thread_id = f"thread_{prospect_data.email}_{state.get('workflow_id')}"
+            logger.info(f"Sending overview request email to {prospect_data.email}...")
+            result = email_mcp.send_email(
+                to=prospect_data.email,
+                subject=draft["subject"],
+                body=draft["body"],
+                thread_id=thread_id
+            )
+            
+            # Create new campaign record for the follow-up as dict
+            from datetime import datetime
+            follow_up_campaign_dict = {
+                "channel": "email",
+                "campaign_type": "overview_request",
+                "subject_line": draft["subject"],
+                "message_body": draft["body"],
+                "personalization_data": {"original_campaign_type": original_campaign.get("campaign_type") if isinstance(original_campaign, dict) else "initial_outreach"},
+                "status": "sent" if result["status"] == "success" else "failed",
+                "sent_at": datetime.now().isoformat() if result["status"] == "success" else None,
+                "thread_id": result.get("thread_id", thread_id),
+                "message_id": result.get("message_id"),
+                "parent_campaign_type": original_campaign.get("campaign_type") if isinstance(original_campaign, dict) else "initial_outreach"
+            }
+            
+            # Add to campaigns list
+            state["outreach_campaigns"] = original_campaigns + [follow_up_campaign_dict]
+            logger.info("Successfully sent overview request email and logged to state.")
+            
+        except Exception as e:
+            logger.error("Failed to send overview request", error=str(e), workflow_id=state.get("workflow_id"))
+            # Add error to state for debugging
+            state["last_error"] = f"Overview request failed: {str(e)}"
+            
+        return state
+
+    async def send_proposal_email(self, state: RainmakerState, proposal: Dict[str, Any]) -> Dict[str, Any]:
+        """Sends proposal email with PDF attachment and meeting request."""
+        logger.info("Sending proposal email", workflow_id=state.get("workflow_id"))
+        
+        prospect_data = state.get("prospect_data")
+        if not prospect_data:
+            logger.warning("Missing prospect data. Cannot send proposal email.")
+            raise ValueError("Missing prospect data")
+            
+        try:
+            # Draft proposal email
+            draft = await self._draft_proposal_email(prospect_data, proposal)
+            
+            # Send the proposal email with PDF attachment
+            thread_id = f"thread_{prospect_data.email}_{state.get('workflow_id')}"
+            logger.info(f"Sending proposal email to {prospect_data.email}...")
+            
+            # Prepare attachment info
+            pdf_path = proposal.get("pdf_file_path")
+            attachment = None
+            if pdf_path:
+                attachment = {
+                    "filename": f"{proposal.get('proposal_id', 'proposal')}.pdf",
+                    "path": pdf_path,
+                    "content_type": "application/pdf"
+                }
+            
+            result = email_mcp.send_email(
+                to=prospect_data.email,
+                subject=draft["subject"],
+                body=draft["body"],
+                thread_id=thread_id,
+                attachment=attachment
+            )
+            
+            # Return result with email details
+            from datetime import datetime
+            return {
+                "status": "success" if result["status"] == "success" else "failed",
+                "sent_at": datetime.now().isoformat() if result["status"] == "success" else None,
+                "subject_line": draft["subject"],
+                "message_id": result.get("message_id"),
+                "thread_id": result.get("thread_id", thread_id)
+            }
+            
+        except Exception as e:
+            logger.error("Failed to send proposal email", error=str(e), workflow_id=state.get("workflow_id"))
+            raise
+
+    async def _draft_proposal_email(self, prospect, proposal: Dict[str, Any]) -> Dict[str, str]:
+        """Drafts a professional proposal email with meeting request."""
+        
+        logger.info(f"Drafting proposal email for {prospect.name}")
+        
+        system_prompt = (
+            "You are an expert event planning sales representative sending a customized proposal. "
+            "Your task is to write a professional email that accompanies a PDF proposal attachment. "
+            "The tone should be confident, professional, and enthusiastic. You want to schedule a meeting "
+            "to discuss the proposal in detail. Include a clear call-to-action for scheduling a meeting."
+        )
+
+        user_message = f"""
+        Please draft a proposal email with PDF attachment.
+
+        **Prospect Information:**
+        - Name: {prospect.name}
+        - Company: {prospect.company_name or proposal.get('client_company', 'Your Company')}
+        - Email: {prospect.email}
+
+        **Proposal Details:**
+        - Event Type: {proposal.get('event_type', 'Corporate Event')}
+        - Total Investment: ${proposal.get('total_investment', 25000):,}
+        - Proposal ID: {proposal.get('proposal_id', 'PROP_001')}
+
+        **Email Purpose:**
+        1. Introduce the attached customized proposal
+        2. Highlight key benefits and value proposition
+        3. Express enthusiasm about working together
+        4. Request a meeting to discuss the proposal in detail
+        5. Provide clear next steps
+
+        **Instructions:**
+        Create a professional proposal email that:
+        1. Thanks them for providing event details
+        2. Introduces the attached proposal with excitement
+        3. Briefly highlights 2-3 key benefits/value points
+        4. Requests a meeting to go through the proposal together
+        5. Provides your contact information for scheduling
+        6. Maintains a confident yet approachable tone
+
+        Return ONLY a valid JSON object with two keys: "subject" and "body".
+        Use "Re: " prefix in subject to maintain email thread.
+        Mention the PDF attachment in the email body.
+
+        Example Response:
+        {{
+            "subject": "Re: Your Event Proposal - Let's Schedule a Call",
+            "body": "Hi {prospect.name}, I'm excited to share your customized event proposal..."
+        }}
+        """
+
+        response_json = await gemini_service.generate_json_response(
+            system_prompt=system_prompt,
+            user_message=user_message
+        )
+
+        if not response_json or "subject" not in response_json or "body" not in response_json:
+            logger.error("Failed to get valid proposal email from Gemini.")
+            raise ValueError("Invalid response from Gemini service.")
+
+        logger.info(f"Successfully drafted proposal email for {prospect.name}")
         return response_json

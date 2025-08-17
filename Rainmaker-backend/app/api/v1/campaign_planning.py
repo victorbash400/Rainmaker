@@ -343,7 +343,7 @@ async def get_campaign_execution_status(
         if plan.user_id != str(current_user.id):
             raise HTTPException(status_code=403, detail="Not authorized to access this plan")
         
-        # Get real execution status from master planner
+        # Get execution status from master planner
         status = master_planner.get_campaign_execution_status(plan_id)
         return status
         
