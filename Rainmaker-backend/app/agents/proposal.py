@@ -10,7 +10,7 @@ from pathlib import Path
 from typing import Dict, List, Any, Optional
 import structlog
 from jinja2 import Template
-from playwright.async_api import async_playwright
+from playwright.sync_api import sync_playwright
 
 # Import Gemini service for AI processing
 import sys
@@ -261,32 +261,51 @@ class ProposalAgent:
         return html_content
     
     async def _convert_to_pdf(self, html_content: str, data: Dict[str, Any]) -> Path:
-        """Convert HTML to high-quality PDF using Playwright"""
+        """Convert HTML to high-quality PDF using sync Playwright to avoid subprocess issues"""
         pdf_path = self.output_dir / f"{data['proposal_id']}.pdf"
         
-        async with async_playwright() as p:
-            browser = await p.chromium.launch()
-            page = await browser.new_page()
-            
-            # Set content and wait for any potential loading
-            await page.set_content(html_content, wait_until='networkidle')
-            
-            # Generate PDF with optimized pagination settings
-            await page.pdf(
-                path=str(pdf_path),
-                format='A4',
-                print_background=True,
-                margin={
-                    'top': '0.75in',
-                    'bottom': '0.75in',
-                    'left': '0.75in',
-                    'right': '0.75in'
-                },
-                prefer_css_page_size=True,
-                display_header_footer=False
-            )
-            
-            await browser.close()
+        # Run Playwright in a thread to avoid async subprocess issues
+        import asyncio
+        import threading
+        
+        def sync_pdf_generation():
+            """Generate PDF using sync Playwright"""
+            try:
+                with sync_playwright() as p:
+                    browser = p.chromium.launch(headless=True)
+                    page = browser.new_page()
+                    
+                    # Set content
+                    page.set_content(html_content, wait_until='networkidle')
+                    
+                    # Generate PDF with optimized pagination settings
+                    page.pdf(
+                        path=str(pdf_path),
+                        format='A4',
+                        print_background=True,
+                        margin={
+                            'top': '0.75in',
+                            'bottom': '0.75in',
+                            'left': '0.75in',
+                            'right': '0.75in'
+                        },
+                        prefer_css_page_size=True,
+                        display_header_footer=False
+                    )
+                    
+                    browser.close()
+                    logger.info("PDF generated successfully", path=str(pdf_path))
+                    return True
+            except Exception as e:
+                logger.error("Failed to generate PDF", error=str(e))
+                return False
+        
+        # Run in thread to avoid async context issues
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, sync_pdf_generation)
+        
+        if not success:
+            raise Exception("PDF generation failed")
         
         logger.info("High-quality PDF proposal generated", file_path=str(pdf_path))
         return pdf_path

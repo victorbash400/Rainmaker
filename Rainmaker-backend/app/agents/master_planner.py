@@ -6,7 +6,7 @@ import structlog
 from typing import Dict, Optional, Any
 
 from .conversational_planner import ConversationalPlannerAgent
-from .campaign_coordinator import CampaignCoordinatorAgent
+from .campaign_coordinator import get_global_coordinator
 from .planning_models import (
     CampaignPlan, PlanningConversation, PlanningPhase, CampaignType,
     CampaignObjectives, TargetProfile, ExecutionStrategy
@@ -26,7 +26,7 @@ class MasterPlannerAgent:
     
     def __init__(self):
         self.conversational_planner = ConversationalPlannerAgent()
-        self.campaign_coordinator = CampaignCoordinatorAgent()
+        self.campaign_coordinator = get_global_coordinator()
         
         # Expose active conversations and campaigns for backward compatibility
         self.active_conversations = self.conversational_planner.active_conversations

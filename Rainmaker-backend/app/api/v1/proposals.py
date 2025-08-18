@@ -4,8 +4,11 @@ Proposals API endpoints
 
 from typing import List, Optional
 from fastapi import APIRouter, Depends, HTTPException, Query
+from fastapi.responses import FileResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
+import os
+from pathlib import Path
 
 from app.db.session import get_db
 from app.db.models import Proposal, User
@@ -116,3 +119,42 @@ async def approve_proposal(
     await db.refresh(proposal)
     
     return {"message": "Proposal approved and sent successfully", "proposal": proposal}
+
+
+@router.get("/view/{proposal_id}")
+async def view_proposal_pdf(proposal_id: str):
+    """View proposal PDF in browser"""
+    try:
+        # Look for PDF in the generated proposals directory
+        pdf_path = Path(__file__).parent.parent.parent / "generated" / "proposals" / f"{proposal_id}.pdf"
+        
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="Proposal PDF not found")
+        
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            headers={"Content-Disposition": "inline"}  # Display in browser instead of download
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to serve PDF: {str(e)}")
+
+
+@router.get("/download/{proposal_id}")
+async def download_proposal_pdf(proposal_id: str):
+    """Download proposal PDF"""
+    try:
+        # Look for PDF in the generated proposals directory  
+        pdf_path = Path(__file__).parent.parent.parent / "generated" / "proposals" / f"{proposal_id}.pdf"
+        
+        if not pdf_path.exists():
+            raise HTTPException(status_code=404, detail="Proposal PDF not found")
+        
+        return FileResponse(
+            path=str(pdf_path),
+            media_type="application/pdf",
+            filename=f"proposal_{proposal_id}.pdf",
+            headers={"Content-Disposition": f"attachment; filename=proposal_{proposal_id}.pdf"}
+        )
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to download PDF: {str(e)}")

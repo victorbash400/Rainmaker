@@ -38,6 +38,7 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
   const [isLoading, setIsLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [showReviewModal, setShowReviewModal] = useState(false)
+  const [showSuccessModal, setShowSuccessModal] = useState(false)
 
   useEffect(() => {
     loadProposalStatus()
@@ -85,6 +86,9 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
       const result = await response.json()
       setProposalStage('generated')
       await loadProposalStatus() // Refresh status
+      
+      // Show success modal after generation
+      setShowSuccessModal(true)
     } catch (err) {
       console.error('Failed to generate proposal:', err)
       setError(err instanceof Error ? err.message : 'Failed to generate proposal')
@@ -365,6 +369,22 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
         )}
       </div>
 
+      {/* Success Modal */}
+      {showSuccessModal && (
+        <SuccessModal
+          proposalData={proposalStatus}
+          onClose={() => setShowSuccessModal(false)}
+          onReview={() => {
+            setShowSuccessModal(false)
+            setShowReviewModal(true)
+          }}
+          onSend={() => {
+            setShowSuccessModal(false)
+            handleSendProposal()
+          }}
+        />
+      )}
+
       {/* Review Modal */}
       {showReviewModal && (
         <ReviewModal
@@ -401,7 +421,7 @@ function ReviewModal({
           initial={{ opacity: 0, scale: 0.95 }}
           animate={{ opacity: 1, scale: 1 }}
           exit={{ opacity: 0, scale: 0.95 }}
-          className="relative inline-block align-bottom bg-white rounded-lg text-left overflow-hidden shadow-xl transform transition-all sm:my-8 sm:align-middle sm:max-w-2xl sm:w-full"
+          className="relative bg-white rounded-xl shadow-xl max-w-4xl w-full mx-4 h-[85vh] flex flex-col"
         >
           <div className="bg-white px-6 pt-6 pb-4">
             <div className="flex items-center justify-between mb-4">
@@ -440,22 +460,30 @@ function ReviewModal({
                 </div>
               </div>
 
-              {/* PDF Preview Notice */}
-              <div className="border border-gray-200 rounded-lg p-4 text-center">
-                <FileText className="h-12 w-12 text-gray-400 mx-auto mb-2" />
-                <p className="text-gray-600 mb-3">
-                  Professional PDF proposal has been generated with your branding
-                </p>
-                {proposalData?.pdf_file_path && (
-                  <a 
-                    href={`/api/proposals/download/${proposalData.proposal_id}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="inline-flex items-center space-x-2 text-blue-600 hover:text-blue-700"
-                  >
-                    <Download className="h-4 w-4" />
-                    <span>Download PDF Preview</span>
-                  </a>
+              {/* PDF Viewer */}
+              <div className="border border-gray-200 rounded-lg overflow-hidden" style={{ height: '400px' }}>
+                {proposalData?.pdf_file_path ? (
+                  <iframe
+                    src={`/api/proposals/view/${proposalData.proposal_id}`}
+                    className="w-full h-full border-0"
+                    title="Proposal PDF"
+                  />
+                ) : (
+                  <div className="flex items-center justify-center h-full bg-gray-50">
+                    <div className="text-center">
+                      <FileText className="h-12 w-12 text-gray-400 mx-auto mb-2" />
+                      <p className="text-gray-600">PDF not available for preview</p>
+                      <a 
+                        href={`/api/proposals/download/${proposalData?.proposal_id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center space-x-2 text-blue-600 hover:text-blue-700 mt-2"
+                      >
+                        <Download className="h-4 w-4" />
+                        <span>Download PDF</span>
+                      </a>
+                    </div>
+                  </div>
                 )}
               </div>
 
@@ -489,6 +517,137 @@ function ReviewModal({
               Send to Client
             </button>
           </div>
+        </motion.div>
+      </div>
+    </div>
+  )
+}
+
+// Success Modal Component
+function SuccessModal({ 
+  proposalData, 
+  onClose, 
+  onReview,
+  onSend 
+}: { 
+  proposalData: ProposalStatus | null
+  onClose: () => void
+  onReview: () => void
+  onSend: () => void
+}) {
+  return (
+    <div className="fixed inset-0 z-50 overflow-y-auto">
+      <div className="flex items-center justify-center min-h-screen pt-4 px-4 pb-20 text-center">
+        {/* Backdrop */}
+        <div 
+          className="fixed inset-0 bg-black bg-opacity-50 transition-opacity"
+          onClick={onClose}
+        />
+        
+        {/* Modal */}
+        <motion.div
+          initial={{ scale: 0.95, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          className="relative bg-white rounded-xl shadow-xl max-w-md w-full mx-4 p-6"
+        >
+          {/* Success Animation */}
+          <div className="text-center mb-6">
+            <motion.div
+              initial={{ scale: 0 }}
+              animate={{ scale: 1 }}
+              transition={{ 
+                type: "spring", 
+                damping: 15, 
+                stiffness: 300,
+                delay: 0.2 
+              }}
+              className="w-16 h-16 bg-gray-100 rounded-full flex items-center justify-center mx-auto mb-4"
+            >
+              <motion.div
+                initial={{ scale: 0 }}
+                animate={{ scale: 1 }}
+                transition={{ delay: 0.4, type: "spring", damping: 10 }}
+              >
+                <CheckCircle className="w-8 h-8 text-gray-600" />
+              </motion.div>
+            </motion.div>
+            
+            <motion.h3 
+              className="text-xl font-semibold text-gray-900 mb-2"
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.6 }}
+            >
+              Proposal Generated Successfully
+            </motion.h3>
+            
+            <motion.p 
+              className="text-gray-600"
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.8 }}
+            >
+              Your professional proposal is ready for {proposalData?.client_company}
+            </motion.p>
+          </div>
+
+          {/* Proposal Summary */}
+          {proposalData && (
+            <motion.div 
+              className="bg-gray-50 rounded-lg p-4 mb-6"
+              initial={{ opacity: 0, y: 20 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 1 }}
+            >
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <span className="text-gray-500">Event:</span>
+                  <div className="font-medium">{proposalData.event_type}</div>
+                </div>
+                <div>
+                  <span className="text-gray-500">Investment:</span>
+                  <div className="font-medium">${proposalData.total_investment?.toLocaleString()}</div>
+                </div>
+              </div>
+              <div className="mt-3 pt-3 border-t border-gray-200">
+                <span className="text-gray-500 text-xs">Proposal ID:</span>
+                <div className="font-mono text-xs text-gray-700">{proposalData.proposal_id}</div>
+              </div>
+            </motion.div>
+          )}
+
+          {/* Action Buttons */}
+          <motion.div 
+            className="flex space-x-3"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 1.2 }}
+          >
+            <button
+              onClick={onReview}
+              className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 transition-colors"
+            >
+              <Eye className="h-4 w-4" />
+              <span>Review</span>
+            </button>
+            <button
+              onClick={onSend}
+              className="flex-1 flex items-center justify-center space-x-2 px-4 py-3 bg-black text-white rounded-lg hover:bg-gray-900 transition-colors"
+            >
+              <Send className="h-4 w-4" />
+              <span>Send Now</span>
+            </button>
+          </motion.div>
+
+          {/* Close hint */}
+          <motion.p 
+            className="text-xs text-gray-400 text-center mt-4"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ delay: 1.4 }}
+          >
+            Click outside to close
+          </motion.p>
         </motion.div>
       </div>
     </div>

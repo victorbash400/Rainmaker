@@ -37,9 +37,15 @@ class BrowserManager:
         try:
             screenshot_base64 = None
             
-            # Capture screenshot
+            # Capture screenshot with increased timeout for font loading
             try:
-                screenshot_bytes = page.screenshot(full_page=False, timeout=3000)
+                # Wait a bit for fonts and other resources to load
+                try:
+                    page.wait_for_timeout(500)  # Brief wait for fonts
+                except:
+                    pass
+                
+                screenshot_bytes = page.screenshot(full_page=False, timeout=10000)  # Increased from 3000ms to 10000ms
                 screenshot_base64 = base64.b64encode(screenshot_bytes).decode('utf-8')
                 logger.debug("Screenshot captured successfully", step=step_name)
             except Exception as screenshot_error:
@@ -122,7 +128,11 @@ class BrowserManager:
                         '--no-first-run',
                         '--disable-default-apps',
                         '--disable-web-security',
-                        '--disable-features=VizDisplayCompositor'
+                        '--disable-features=VizDisplayCompositor',
+                        '--disable-font-subpixel-positioning',  # Faster font rendering
+                        '--disable-background-timer-throttling',  # Prevent delayed font loading
+                        '--disable-renderer-backgrounding',  # Keep renderer active
+                        '--disable-backgrounding-occluded-windows'  # Prevent font loading delays
                     ]
                 )
                 logger.info("Sync browser launched successfully", 

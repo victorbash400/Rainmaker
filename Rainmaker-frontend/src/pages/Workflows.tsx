@@ -506,6 +506,15 @@ export default function Workflows() {
                             </>
                           )}
                           
+                          {/* Debug: Show current phase */}
+                          {console.log('🔍 WORKFLOW DEBUG:', {
+                            plan_id: workflow.plan_id,
+                            current_phase: workflow.current_phase,
+                            status: workflow.status,
+                            all_phases: ['discovery', 'hunting', 'enriching', 'outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting'],
+                            should_show_proposal: workflow.current_phase === 'proposal' || workflow.current_phase === 'meeting'
+                          })}
+                          
                           {/* Default view for other phases */}
                           {!['discovery', 'hunting', 'enriching', 'outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting'].includes(workflow.current_phase) && (
                             <div className="flex-1 max-w-2xl">

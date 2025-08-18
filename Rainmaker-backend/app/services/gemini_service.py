@@ -216,21 +216,46 @@ class GeminiService:
             # Try to extract JSON from response if it's wrapped in markdown code blocks
             import re
             
-            # First try to extract from ```json blocks
-            json_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL)
+            # First try to extract from ```json blocks - improved regex
+            json_block_match = re.search(r'```(?:json)?\s*(\{.*?\})\s*```', response_text, re.DOTALL | re.MULTILINE)
             if json_block_match:
                 try:
-                    return json.loads(json_block_match.group(1))
-                except json.JSONDecodeError:
-                    pass
+                    json_content = json_block_match.group(1).strip()
+                    logger.debug("Extracted JSON from code block", content=json_content[:200])
+                    return json.loads(json_content)
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse extracted JSON from code block", error=str(e))
+            
+            # Try simpler extraction - look for JSON between triple backticks
+            lines = response_text.split('\n')
+            json_lines = []
+            in_json_block = False
+            for line in lines:
+                if line.strip().startswith('```'):
+                    if in_json_block:
+                        break  # End of JSON block
+                    in_json_block = True
+                    continue
+                if in_json_block:
+                    json_lines.append(line)
+            
+            if json_lines:
+                try:
+                    json_content = '\n'.join(json_lines).strip()
+                    logger.debug("Line-by-line extracted JSON", content=json_content[:200])
+                    return json.loads(json_content)
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse line-extracted JSON", error=str(e))
             
             # Fallback to finding any JSON object
             json_match = re.search(r'\{.*\}', response_text, re.DOTALL)
             if json_match:
                 try:
-                    return json.loads(json_match.group())
-                except json.JSONDecodeError:
-                    pass
+                    json_content = json_match.group().strip()
+                    logger.debug("Fallback extracted JSON", content=json_content[:200])
+                    return json.loads(json_content)
+                except json.JSONDecodeError as e:
+                    logger.warning("Failed to parse fallback JSON", error=str(e))
             return {}
 
     async def extract_requirements_from_conversation(

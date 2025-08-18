@@ -292,12 +292,11 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
       }
 
       const result = await response.json();
-      setStage('complete');
+      // Don't set stage to 'complete' - let WebSocket updates handle the transition
+      // The workflow should now be in 'proposal' phase
       
-      // Notify parent component
-      setTimeout(() => {
-        onComplete?.();
-      }, 2000);
+      // Notify parent component immediately to refresh workflow data
+      onComplete?.();
       
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to proceed');

@@ -174,7 +174,9 @@ async def send_proposal(
         
         # Verify proposal exists and is ready to send
         proposal = state.get("proposal", {})
+        logger.info("Proposal check", has_proposal=bool(proposal), proposal_status=proposal.get("status") if proposal else None)
         if not proposal or proposal.get("status") != "generated":
+            logger.error("Proposal validation failed", has_proposal=bool(proposal), status=proposal.get("status") if proposal else None)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No proposal available to send. Generate a proposal first."
@@ -182,7 +184,10 @@ async def send_proposal(
         
         # Get prospect data
         prospect_data = state.get("prospect_data")
-        if not prospect_data or not prospect_data.email:
+        prospect_email = getattr(prospect_data, 'email', '') if prospect_data else ''
+        logger.info("Prospect data check", has_prospect_data=bool(prospect_data), prospect_email=prospect_email, prospect_data_type=type(prospect_data).__name__ if prospect_data else None)
+        if not prospect_data or not prospect_email:
+            logger.error("Prospect data validation failed", has_prospect_data=bool(prospect_data), prospect_email=prospect_email)
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No prospect email found in workflow state"
@@ -222,7 +227,10 @@ async def send_proposal(
     except HTTPException:
         raise
     except Exception as e:
-        logger.error("Failed to send proposal", error=str(e), workflow_id=workflow_id)
+        logger.error("Failed to send proposal", error=str(e), workflow_id=workflow_id, error_type=type(e).__name__)
+        # Log more details about the error
+        import traceback
+        logger.error("Full traceback", traceback=traceback.format_exc())
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to send proposal: {str(e)}"
@@ -257,7 +265,8 @@ async def check_meeting_response(
         
         # Get prospect email from state
         prospect_data = state.get("prospect_data")
-        if not prospect_data or not prospect_data.email:
+        prospect_email = getattr(prospect_data, 'email', '') if prospect_data else ''
+        if not prospect_data or not prospect_email:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="No prospect email found in workflow state"
@@ -272,19 +281,19 @@ async def check_meeting_response(
             try:
                 sent_time = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
                 since_date = sent_time.strftime("%d-%b-%Y")
-                replies = email_mcp.check_for_replies(prospect_data.email, since_date=since_date)
+                replies = email_mcp.check_for_replies(prospect_email, since_date=since_date)
             except:
                 # Fallback to recent check
                 from datetime import timedelta
                 recent_time = datetime.now() - timedelta(minutes=15)
                 recent_date = recent_time.strftime("%d-%b-%Y")
-                replies = email_mcp.check_for_replies(prospect_data.email, since_date=recent_date)
+                replies = email_mcp.check_for_replies(prospect_email, since_date=recent_date)
         else:
             # Fallback to recent check
             from datetime import timedelta
             recent_time = datetime.now() - timedelta(minutes=15)
             recent_date = recent_time.strftime("%d-%b-%Y")
-            replies = email_mcp.check_for_replies(prospect_data.email, since_date=recent_date)
+            replies = email_mcp.check_for_replies(prospect_email, since_date=recent_date)
         
         if not replies:
             logger.info("No meeting responses found", workflow_id=workflow_id)
@@ -421,11 +430,11 @@ async def _extract_proposal_data(state: Dict[str, Any]) -> Dict[str, Any]:
     
     # Build proposal data structure
     proposal_data = {
-        "client_company": getattr(prospect_data, 'company', prospect_data.get('company', 'Client Company')),
-        "prospect_name": getattr(prospect_data, 'name', prospect_data.get('name', 'Prospect')),
-        "prospect_email": getattr(prospect_data, 'email', prospect_data.get('email', '')),
+        "client_company": getattr(prospect_data, 'company_name', getattr(prospect_data, 'company', 'Client Company')),
+        "prospect_name": getattr(prospect_data, 'name', 'Prospect'),
+        "prospect_email": getattr(prospect_data, 'email', ''),
         "industry": enriched_data.get("industry", "Corporate"),
-        "location": getattr(prospect_data, 'location', prospect_data.get('location', 'TBD')),
+        "location": getattr(prospect_data, 'location', 'TBD'),
         
         # Event details from overview
         "event_type": event_details.get("event_type", "Corporate Event"),

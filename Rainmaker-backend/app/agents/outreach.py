@@ -289,38 +289,56 @@ class OutreachAgent:
 
     async def send_proposal_email(self, state: RainmakerState, proposal: Dict[str, Any]) -> Dict[str, Any]:
         """Sends proposal email with PDF attachment and meeting request."""
-        logger.info("Sending proposal email", workflow_id=state.get("workflow_id"))
+        logger.info("Starting proposal email send", workflow_id=state.get("workflow_id"))
         
         prospect_data = state.get("prospect_data")
+        logger.info("Prospect data check", has_prospect_data=bool(prospect_data), prospect_data_type=type(prospect_data).__name__ if prospect_data else None)
+        
         if not prospect_data:
             logger.warning("Missing prospect data. Cannot send proposal email.")
             raise ValueError("Missing prospect data")
             
         try:
             # Draft proposal email
+            logger.info("Drafting proposal email...")
             draft = await self._draft_proposal_email(prospect_data, proposal)
+            logger.info("Email draft completed", subject=draft.get("subject", "")[:50] if draft else "No draft")
             
             # Send the proposal email with PDF attachment
-            thread_id = f"thread_{prospect_data.email}_{state.get('workflow_id')}"
-            logger.info(f"Sending proposal email to {prospect_data.email}...")
+            prospect_email = getattr(prospect_data, 'email', '')
+            logger.info("Extracted prospect email", prospect_email=prospect_email, has_email=bool(prospect_email))
+            
+            thread_id = f"thread_{prospect_email}_{state.get('workflow_id')}"
+            logger.info(f"Sending proposal email to {prospect_email}...", thread_id=thread_id)
             
             # Prepare attachment info
             pdf_path = proposal.get("pdf_file_path")
+            logger.info("PDF attachment info", pdf_path=pdf_path, pdf_exists=bool(pdf_path))
+            
             attachment = None
             if pdf_path:
+                import os
+                pdf_exists_on_disk = os.path.exists(pdf_path)
+                logger.info("PDF file check", pdf_path=pdf_path, exists_on_disk=pdf_exists_on_disk)
+                
                 attachment = {
                     "filename": f"{proposal.get('proposal_id', 'proposal')}.pdf",
                     "path": pdf_path,
                     "content_type": "application/pdf"
                 }
+                logger.info("Attachment prepared", attachment_filename=attachment["filename"])
+            else:
+                logger.warning("No PDF path found in proposal data")
             
+            logger.info("Calling email_mcp.send_email", to=prospect_email, has_attachment=bool(attachment))
             result = email_mcp.send_email(
-                to=prospect_data.email,
+                to=prospect_email,
                 subject=draft["subject"],
                 body=draft["body"],
                 thread_id=thread_id,
                 attachment=attachment
             )
+            logger.info("Email send result", result_status=result.get("status"), result_keys=list(result.keys()) if result else None)
             
             # Return result with email details
             from datetime import datetime
@@ -333,7 +351,9 @@ class OutreachAgent:
             }
             
         except Exception as e:
-            logger.error("Failed to send proposal email", error=str(e), workflow_id=state.get("workflow_id"))
+            logger.error("Failed to send proposal email", error=str(e), error_type=type(e).__name__, workflow_id=state.get("workflow_id"))
+            import traceback
+            logger.error("Full traceback for proposal email failure", traceback=traceback.format_exc())
             raise
 
     async def _draft_proposal_email(self, prospect, proposal: Dict[str, Any]) -> Dict[str, str]:

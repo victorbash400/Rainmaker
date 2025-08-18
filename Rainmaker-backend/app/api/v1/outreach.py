@@ -152,11 +152,37 @@ async def proceed_to_proposal(
         
         logger.info("Workflow proceeding to proposal stage", workflow_id=workflow_id)
         
+        # Force sync campaign coordinator to detect the phase change and broadcast
+        try:
+            from app.agents.campaign_coordinator import get_global_coordinator
+            
+            # Get the global coordinator instance
+            coordinator = get_global_coordinator()
+            
+            # Find the plan_id for this workflow
+            plan_id = None
+            for pid, execution_state in coordinator.executing_campaigns.items():
+                if execution_state.get("workflow_id") == workflow_id:
+                    plan_id = pid
+                    break
+            
+            if plan_id:
+                logger.info("🔄 Triggering force sync for campaign coordinator", 
+                          plan_id=plan_id, workflow_id=workflow_id)
+                await coordinator.force_sync_workflow_state(plan_id)
+            else:
+                logger.warning("Could not find plan_id for workflow to trigger sync", 
+                             workflow_id=workflow_id)
+                
+        except Exception as e:
+            logger.warning("Failed to trigger campaign coordinator sync", 
+                         error=str(e), workflow_id=workflow_id)
+        
         return {
             "status": "success",
             "message": "Workflow proceeding to proposal generation",
             "next_stage": WorkflowStage.PROPOSAL,
-            "workflow_complete": True  # For now, since proposal agent isn't built
+            "workflow_complete": False  # Changed to False so frontend shows ProposalViewer
         }
         
     except HTTPException:

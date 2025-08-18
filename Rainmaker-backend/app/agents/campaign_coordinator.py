@@ -16,11 +16,20 @@ logger = structlog.get_logger(__name__)
 
 # Global callback for workflow status updates
 workflow_status_callback: Optional[Callable] = None
+# Global coordinator instance
+_global_coordinator: Optional['CampaignCoordinatorAgent'] = None
 
 def set_workflow_status_callback(callback: Callable):
     """Set callback function for workflow status updates"""
     global workflow_status_callback
     workflow_status_callback = callback
+
+def get_global_coordinator() -> 'CampaignCoordinatorAgent':
+    """Get or create the global coordinator instance"""
+    global _global_coordinator
+    if _global_coordinator is None:
+        _global_coordinator = CampaignCoordinatorAgent()
+    return _global_coordinator
 
 
 class CampaignCoordinatorAgent:
@@ -48,9 +57,12 @@ class CampaignCoordinatorAgent:
                 return
         
         try:
+            # Get the actual current status (which syncs with database)
+            actual_status = self.get_campaign_execution_status(plan_id)
+            
             status_data = {
                 "status": execution_state.get("status", "unknown"),
-                "current_phase": execution_state.get("current_phase", "unknown"),
+                "current_phase": actual_status.get("current_phase", execution_state.get("current_phase", "unknown")),
                 "progress_percentage": self._calculate_progress_percentage(execution_state),
                 "metrics": execution_state.get("metrics", {}),
                 "workflow_id": execution_state.get("workflow_id", f"campaign_{plan_id}")
@@ -124,17 +136,51 @@ class CampaignCoordinatorAgent:
         
         return result
     
+    async def force_sync_workflow_state(self, plan_id: str) -> None:
+        """Force sync workflow state from database and broadcast if changed"""
+        if plan_id in self.executing_campaigns:
+            state = self.executing_campaigns[plan_id]
+            workflow_id = state.get("workflow_id")
+            current_phase = state.get("current_phase", "unknown")
+            
+            try:
+                from app.core.persistence import persistence_manager
+                workflow_state = await persistence_manager.load_state(workflow_id)
+                
+                if workflow_state and workflow_state.get("current_stage"):
+                    actual_phase = workflow_state.get("current_stage")
+                    if actual_phase != current_phase:
+                        logger.info("🔄 Force sync detected workflow phase change", 
+                                  workflow_id=workflow_id,
+                                  old_phase=current_phase, 
+                                  new_phase=actual_phase)
+                        
+                        # Update in-memory state
+                        state["current_phase"] = actual_phase
+                        state["last_updated"] = datetime.now()
+                        
+                        # Force broadcast the change
+                        self._broadcast_status_update(plan_id, state, force=True)
+                        logger.info("✅ Force broadcasted workflow change to frontend", 
+                                  plan_id=plan_id, new_phase=actual_phase)
+                        
+            except Exception as e:
+                logger.error("Failed to force sync workflow state", error=str(e), workflow_id=workflow_id)
+
     def get_campaign_execution_status(self, plan_id: str) -> Dict[str, Any]:
         """Get execution status for a campaign"""
         if plan_id in self.executing_campaigns:
             state = self.executing_campaigns[plan_id]
             workflow_id = state.get("workflow_id", f"campaign_{plan_id}_{datetime.now().timestamp()}")
             
+            # Get current phase from in-memory state (sync will be handled externally)
+            current_phase = state.get("current_phase", "planning_complete")
+            
             return {
                 "plan_id": plan_id,
                 "workflow_id": workflow_id,
                 "status": state.get("status", "ready"),
-                "current_phase": state.get("current_phase", "planning_complete"),
+                "current_phase": current_phase,
                 "progress_percentage": self._calculate_progress_percentage(state),
                 "metrics": state.get("metrics", {
                     "prospects_discovered": 0,
