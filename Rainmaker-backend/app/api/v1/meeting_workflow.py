@@ -28,7 +28,7 @@ async def proceed_to_meeting_phase(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -57,7 +57,7 @@ async def proceed_to_meeting_phase(
         state = StateManager.update_stage(state, WorkflowStage.MEETING)
         
         # Save updated state
-        await persistence_manager.save_state(workflow_id, state)
+        persistence_manager.save_state(workflow_id, state)
         
         logger.info(
             "Successfully transitioned to meeting phase",

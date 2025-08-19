@@ -29,7 +29,7 @@ async def check_meeting_response(
     
     try:
         # Get workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(status_code=404, detail="Workflow not found")
         
@@ -47,7 +47,7 @@ async def check_meeting_response(
                 "response_analysis": response_result.get("response_analysis", ""),
                 "received_at": datetime.now().isoformat()
             }
-            await persistence_manager.save_state(workflow_id, state)
+            persistence_manager.save_state(workflow_id, state)
         
         logger.info("Meeting response check completed", 
                    workflow_id=workflow_id, 
@@ -78,7 +78,7 @@ async def schedule_meeting(
     
     try:
         # Get workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(status_code=404, detail="Workflow not found")
         
@@ -122,7 +122,7 @@ async def schedule_meeting(
             "meeting_details": meeting_details,
             "scheduled_at": datetime.now().isoformat()
         }
-        await persistence_manager.save_state(workflow_id, state)
+        persistence_manager.save_state(workflow_id, state)
         
         logger.info("Meeting scheduled successfully", 
                    workflow_id=workflow_id,
@@ -354,7 +354,7 @@ async def get_calendar_status(
     
     try:
         # Get workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(status_code=404, detail="Workflow not found")
         

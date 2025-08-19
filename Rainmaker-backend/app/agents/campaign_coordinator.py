@@ -145,7 +145,7 @@ class CampaignCoordinatorAgent:
             
             try:
                 from app.core.persistence import persistence_manager
-                workflow_state = await persistence_manager.load_state(workflow_id)
+                workflow_state = persistence_manager.load_state(workflow_id)
                 
                 if workflow_state and workflow_state.get("current_stage"):
                     actual_phase = workflow_state.get("current_stage")

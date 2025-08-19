@@ -34,7 +34,7 @@ async def generate_proposal(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -77,7 +77,7 @@ async def generate_proposal(
         state = StateManager.update_stage(state, WorkflowStage.PROPOSAL)
         
         # Save updated state
-        await persistence_manager.save_state(workflow_id, state)
+        persistence_manager.save_state(workflow_id, state)
         
         logger.info(
             "Proposal generated successfully",
@@ -117,7 +117,7 @@ async def get_proposal_status(
     """
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -165,7 +165,7 @@ async def send_proposal(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -207,7 +207,7 @@ async def send_proposal(
         state = StateManager.update_stage(state, WorkflowStage.MEETING)
         
         # Save updated state
-        await persistence_manager.save_state(workflow_id, state)
+        persistence_manager.save_state(workflow_id, state)
         
         # Force sync campaign coordinator to detect the phase change and broadcast
         try:
@@ -278,7 +278,7 @@ async def setup_meeting(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -308,7 +308,7 @@ async def setup_meeting(
         state = StateManager.update_stage(state, WorkflowStage.COMPLETED)
         
         # Save updated state
-        await persistence_manager.save_state(workflow_id, state)
+        persistence_manager.save_state(workflow_id, state)
         
         logger.info("Meeting setup completed (placeholder)", workflow_id=workflow_id)
         

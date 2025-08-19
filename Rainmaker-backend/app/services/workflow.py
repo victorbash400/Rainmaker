@@ -335,7 +335,7 @@ class RainmakerWorkflow:
                 
                 # Save state for outreach API endpoints
                 from app.core.persistence import persistence_manager
-                await persistence_manager.save_state(state["workflow_id"], state)
+                persistence_manager.save_state(state["workflow_id"], state)
                 logger.info(
                     "Outreach sent successfully - workflow paused and state saved", 
                     workflow_id=state["workflow_id"]

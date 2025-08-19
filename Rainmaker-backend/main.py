@@ -28,8 +28,7 @@ async def lifespan(app: FastAPI):
     print("🚀 Starting Rainmaker API...")
     
     # Create database tables
-    async with engine.begin() as conn:
-        await conn.run_sync(models.Base.metadata.create_all)
+    models.Base.metadata.create_all(bind=engine)
     
     # Setup browser viewer
     try:

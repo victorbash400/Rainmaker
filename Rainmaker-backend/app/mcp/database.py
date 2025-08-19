@@ -13,7 +13,7 @@ from mcp.server import Server
 from mcp.types import Tool, TextContent, CallToolResult
 
 from app.core.config import settings
-from app.db.session import AsyncSessionLocal, engine, test_connection
+from app.db.session import SessionLocal, engine, test_connection
 from app.db.models import (
     Prospect, EventRequirements, Campaign, Conversation, 
     Message, Proposal, Meeting, AgentActivity, User

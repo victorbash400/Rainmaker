@@ -13,7 +13,6 @@ from contextlib import asynccontextmanager
 import uuid
 
 import structlog
-from sqlalchemy.ext.asyncio import AsyncSession
 from fastapi import WebSocket
 
 from app.core.state import (
@@ -22,7 +21,6 @@ from app.core.state import (
 from app.core.persistence import StatePersistence
 from app.services.workflow import rainmaker_workflow
 from app.mcp.database import database_mcp
-from app.db.session import get_db
 
 logger = structlog.get_logger(__name__)
 
@@ -130,7 +128,7 @@ class AgentOrchestrator:
         self.workflow_locks[workflow_id] = asyncio.Lock()
         
         # Persist initial state
-        await self.state_persistence.save_state(workflow_id, initial_state)
+        self.state_persistence.save_state(workflow_id, initial_state)
         
         # Update metrics
         self.metrics.workflows_started += 1
@@ -162,7 +160,7 @@ class AgentOrchestrator:
                 self.active_workflows[workflow_id] = final_state
                 
                 # Persist final state
-                await self.state_persistence.save_state(workflow_id, final_state)
+                self.state_persistence.save_state(workflow_id, final_state)
                 
                 # Update metrics
                 if final_state.get("current_stage") == WorkflowStage.COMPLETED:
@@ -211,7 +209,7 @@ class AgentOrchestrator:
                 error_state["current_stage"] = WorkflowStage.FAILED
                 
                 self.active_workflows[workflow_id] = error_state
-                await self.state_persistence.save_state(workflow_id, error_state)
+                self.state_persistence.save_state(workflow_id, error_state)
             
             # Update metrics
             self.metrics.workflows_failed += 1
@@ -231,7 +229,7 @@ class AgentOrchestrator:
         """
         if workflow_id not in self.active_workflows:
             # Try to load from persistence
-            state = await self.state_persistence.load_state(workflow_id)
+            state = self.state_persistence.load_state(workflow_id)
             if state:
                 self.active_workflows[workflow_id] = state
                 self.workflow_locks[workflow_id] = asyncio.Lock()
@@ -284,7 +282,7 @@ class AgentOrchestrator:
             state["paused"] = True
             state["paused_at"] = datetime.now()
             
-            await self.state_persistence.save_state(workflow_id, state)
+            self.state_persistence.save_state(workflow_id, state)
             await self._broadcast_workflow_event(workflow_id, "workflow_paused", state)
             
             logger.info("Workflow paused", workflow_id=workflow_id)
@@ -314,7 +312,7 @@ class AgentOrchestrator:
             state.pop("paused_at", None)
             state["resumed_at"] = datetime.now()
             
-            await self.state_persistence.save_state(workflow_id, state)
+            self.state_persistence.save_state(workflow_id, state)
             await self._broadcast_workflow_event(workflow_id, "workflow_resumed", state)
             
             # Restart execution
@@ -354,7 +352,7 @@ class AgentOrchestrator:
             state["retry_count"] = state.get("retry_count", 0) + 1
             state["last_updated_at"] = datetime.now()
             
-            await self.state_persistence.save_state(workflow_id, state)
+            self.state_persistence.save_state(workflow_id, state)
             await self._broadcast_workflow_event(workflow_id, "workflow_retrying", state)
             
             # Restart execution
@@ -391,7 +389,7 @@ class AgentOrchestrator:
             state["cancelled_at"] = datetime.now()
             state["cancellation_reason"] = reason
             
-            await self.state_persistence.save_state(workflow_id, state)
+            self.state_persistence.save_state(workflow_id, state)
             await self._broadcast_workflow_event(workflow_id, "workflow_cancelled", {
                 "reason": reason,
                 "cancelled_at": datetime.now()
@@ -502,7 +500,7 @@ class AgentOrchestrator:
                 
                 for workflow_id in workflows_to_remove:
                     # Archive before removing
-                    await self.state_persistence.archive_state(workflow_id)
+                    self.state_persistence.archive_state(workflow_id)
                     
                     # Remove from active workflows
                     self.active_workflows.pop(workflow_id, None)

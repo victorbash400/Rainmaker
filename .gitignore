@@ -103,6 +103,10 @@ Thumbs.db
 *.sqlite3
 Rainmaker-backend/rainmaker.db
 
+# TiDB certificates
+*.pem
+Rainmaker-backend/*.pem
+
 # Logs
 logs/
 *.log

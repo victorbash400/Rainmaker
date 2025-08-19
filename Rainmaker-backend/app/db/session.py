@@ -2,11 +2,13 @@
 Database session management with TiDB Serverless support
 """
 
-from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession, async_sessionmaker
-from sqlalchemy.orm import declarative_base
-from sqlalchemy.pool import QueuePool
+from sqlalchemy import create_engine
+from sqlalchemy.orm import declarative_base, sessionmaker
+from sqlalchemy.pool import NullPool
 from app.core.config import settings
 import logging
+import ssl
+import os
 
 logger = logging.getLogger(__name__)
 
@@ -15,26 +17,24 @@ def get_engine_config():
     """Get engine configuration optimized for TiDB Serverless"""
     base_config = {
         "echo": settings.DEBUG,
-        "future": True,
         "pool_pre_ping": True,
         "pool_recycle": 3600,  # 1 hour for TiDB Serverless
     }
     
     # TiDB Serverless specific optimizations
     if "tidbcloud.com" in settings.tidb_url:
+        cert_path = os.path.abspath("isrgrootx1.pem")
+        
         base_config.update({
-            "poolclass": QueuePool,
-            "pool_size": 5,  # Conservative for serverless
-            "max_overflow": 10,
-            "pool_timeout": 30,
-            "pool_recycle": 1800,  # 30 minutes for serverless
+            "poolclass": NullPool,  # Use NullPool for serverless
             "connect_args": {
-                "connect_timeout": 10,
-                "read_timeout": 30,
-                "write_timeout": 30,
+                "charset": "utf8mb4",
+                "ssl_ca": cert_path,
+                "ssl_verify_cert": True,
+                "ssl_verify_identity": True,
             }
         })
-        logger.info("Configured engine for TiDB Serverless")
+        logger.info(f"Configured engine for TiDB Serverless with SSL cert: {cert_path}")
     else:
         # Local development settings
         base_config.update({
@@ -45,16 +45,15 @@ def get_engine_config():
     
     return base_config
 
-# Create async engine with optimized settings
-engine = create_async_engine(
+# Create synchronous engine with optimized settings
+engine = create_engine(
     settings.tidb_url,
     **get_engine_config()
 )
 
-# Create async session factory
-AsyncSessionLocal = async_sessionmaker(
-    engine,
-    class_=AsyncSession,
+# Create session factory
+SessionLocal = sessionmaker(
+    bind=engine,
     expire_on_commit=False,
 )
 
@@ -62,21 +61,21 @@ AsyncSessionLocal = async_sessionmaker(
 Base = declarative_base()
 
 
-async def get_db() -> AsyncSession:
+def get_db():
     """Dependency to get database session"""
-    async with AsyncSessionLocal() as session:
-        try:
-            yield session
-        finally:
-            await session.close()
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
 
 
-async def test_connection():
+def test_connection():
     """Test database connectivity"""
     try:
         from sqlalchemy import text
-        async with AsyncSessionLocal() as session:
-            result = await session.execute(text("SELECT 1"))
+        with SessionLocal() as session:
+            result = session.execute(text("SELECT 1"))
             result.fetchone()
             logger.info("Database connection test successful")
             return True
@@ -85,7 +84,7 @@ async def test_connection():
         return False
 
 
-async def close_db():
+def close_db():
     """Close database connections"""
-    await engine.dispose()
+    engine.dispose()
     logger.info("Database connections closed")

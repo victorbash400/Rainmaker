@@ -11,22 +11,23 @@ import os
 class Settings(BaseSettings):
     """Application settings"""
     
-    # Database
-    TIDB_URL: str = "sqlite+aiosqlite:///./rainmaker.db"  # Default to SQLite for development
-    TIDB_HOST: Optional[str] = None
+    # Database - TiDB Serverless only (no SQLite fallback)
+    # TIDB_URL: str = "sqlite+aiosqlite:///./rainmaker.db"  # Commented out - TiDB only
+    TIDB_HOST: str  # Required - no default, will fail if not provided
     TIDB_PORT: int = 4000
-    TIDB_USER: Optional[str] = None
-    TIDB_PASSWORD: Optional[SecretStr] = None
-    TIDB_DATABASE: str = "rainmaker"
+    TIDB_USER: str  # Required - no default, will fail if not provided  
+    TIDB_PASSWORD: SecretStr  # Required - no default, will fail if not provided
+    TIDB_DATABASE: str = "github_sample"  # Default to your current database
     REDIS_URL: str = "redis://localhost:6379"
     
     @property
     def tidb_url(self) -> str:
-        """Construct TiDB URL from components if provided, otherwise use TIDB_URL"""
-        if self.TIDB_HOST and self.TIDB_USER and self.TIDB_PASSWORD:
-            password = self.TIDB_PASSWORD.get_secret_value()
-            return f"mysql+aiomysql://{self.TIDB_USER}:{password}@{self.TIDB_HOST}:{self.TIDB_PORT}/{self.TIDB_DATABASE}?ssl=true"
-        return self.TIDB_URL
+        """Construct TiDB URL - TiDB Serverless only, no fallback"""
+        if not self.TIDB_HOST or not self.TIDB_USER or not self.TIDB_PASSWORD:
+            raise ValueError("TiDB credentials are required! Please set TIDB_HOST, TIDB_USER, and TIDB_PASSWORD in your .env file")
+        
+        password = self.TIDB_PASSWORD.get_secret_value()
+        return f"mysql+pymysql://{self.TIDB_USER}:{password}@{self.TIDB_HOST}:{self.TIDB_PORT}/{self.TIDB_DATABASE}"
     
     # External APIs
     OPENAI_API_KEY: SecretStr
@@ -35,6 +36,9 @@ class Settings(BaseSettings):
     CLEARBIT_API_KEY: Optional[SecretStr] = None
     GOOGLE_CALENDAR_CREDENTIALS: Optional[SecretStr] = None
     LINKEDIN_API_KEY: Optional[SecretStr] = None
+    GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
+    GOOGLE_CLOUD_PROJECT: Optional[str] = None
+    GOOGLE_CLOUD_LOCATION: Optional[str] = None
     
     # AWS
     AWS_ACCESS_KEY_ID: Optional[str] = None

@@ -13,10 +13,10 @@ import uuid
 
 import structlog
 from sqlalchemy import text, select, insert, update, delete
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.orm import Session
 
 from app.core.state import RainmakerState, StateManager
-from app.db.session import get_db
+from app.db.session import SessionLocal
 from app.mcp.database import database_mcp
 
 logger = structlog.get_logger(__name__)
@@ -35,14 +35,14 @@ class StatePersistence:
         self._ensure_table_task = None
         self._table_ensured = False
     
-    async def _ensure_tables_exist(self):
+    def _ensure_tables_exist(self):
         """Ensure required database tables exist"""
         if self._table_ensured:
             return
             
         try:
             # Create workflow_states table using direct database session
-            async for db in get_db():
+            with SessionLocal() as db:
                 create_table_sql = f"""
                 CREATE TABLE IF NOT EXISTS {self.table_name} (
                     workflow_id VARCHAR(255) PRIMARY KEY,
@@ -56,9 +56,8 @@ class StatePersistence:
                 )
                 """
                 
-                await db.execute(text(create_table_sql))
-                await db.commit()
-                break
+                db.execute(text(create_table_sql))
+                db.commit()
             
             self._table_ensured = True
             logger.info("Workflow states table created successfully")
@@ -67,13 +66,12 @@ class StatePersistence:
             logger.error("Failed to create workflow states table", error=str(e))
             raise
     
-    async def _ensure_table_ready(self):
+    def _ensure_table_ready(self):
         """Lazy initialization of table creation"""
-        if self._ensure_table_task is None:
-            self._ensure_table_task = asyncio.create_task(self._ensure_tables_exist())
-        await self._ensure_table_task
+        if not self._table_ensured:
+            self._ensure_tables_exist()
     
-    async def save_state(self, workflow_id: str, state: RainmakerState) -> bool:
+    def save_state(self, workflow_id: str, state: RainmakerState) -> bool:
         """
         Save workflow state to persistence layer.
         
@@ -85,7 +83,7 @@ class StatePersistence:
             True if saved successfully
         """
         try:
-            await self._ensure_table_ready()  # Wait for table creation
+            self._ensure_table_ready()  # Wait for table creation
             
             # Clean and serialize state with error handling
             try:
@@ -100,10 +98,10 @@ class StatePersistence:
                 return False
             
             # Use direct database session
-            async for db in get_db():
+            with SessionLocal() as db:
                 # Check if record exists
                 check_query = f"SELECT workflow_id FROM {self.table_name} WHERE workflow_id = :workflow_id"
-                check_result = await db.execute(text(check_query), {"workflow_id": workflow_id})
+                check_result = db.execute(text(check_query), {"workflow_id": workflow_id})
                 existing = check_result.fetchone()
                 
                 now = datetime.now()
@@ -147,7 +145,7 @@ class StatePersistence:
                         "completed_at": completed_at,
                         "workflow_id": workflow_id
                     }
-                    await db.execute(text(update_query), params)
+                    db.execute(text(update_query), params)
                 else:
                     # Insert new record
                     insert_query = f"""
@@ -164,10 +162,9 @@ class StatePersistence:
                         "updated_at": now,
                         "completed_at": completed_at
                     }
-                    await db.execute(text(insert_query), params)
+                    db.execute(text(insert_query), params)
                 
-                await db.commit()
-                break
+                db.commit()
             
             logger.debug("State saved", workflow_id=workflow_id, stage=current_stage)
             return True
@@ -176,7 +173,7 @@ class StatePersistence:
             logger.error("Failed to save state", workflow_id=workflow_id, error=str(e))
             return False
     
-    async def load_state(self, workflow_id: str) -> Optional[RainmakerState]:
+    def load_state(self, workflow_id: str) -> Optional[RainmakerState]:
         """
         Load workflow state from persistence layer.
         
@@ -187,16 +184,16 @@ class StatePersistence:
             Workflow state or None if not found
         """
         try:
-            await self._ensure_table_ready()
+            self._ensure_table_ready()
             
             # Use direct database session
-            async for db in get_db():
+            with SessionLocal() as db:
                 query = f"""
                 SELECT state_data FROM {self.table_name} 
                 WHERE workflow_id = :workflow_id AND is_archived = FALSE
                 """
                 
-                result = await db.execute(text(query), {"workflow_id": workflow_id})
+                result = db.execute(text(query), {"workflow_id": workflow_id})
                 row = result.fetchone()
                 
                 if not row:

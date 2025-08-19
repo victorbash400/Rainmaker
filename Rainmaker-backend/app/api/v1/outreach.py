@@ -36,7 +36,7 @@ async def check_for_replies(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -87,7 +87,7 @@ async def check_for_replies(
             analyzed_state = StateManager.update_stage(analyzed_state, WorkflowStage.CONVERSATION)
             
         # Save updated state
-        await persistence_manager.save_state(workflow_id, analyzed_state)
+        persistence_manager.save_state(workflow_id, analyzed_state)
         
         logger.info(
             "Reply processed successfully",
@@ -127,7 +127,7 @@ async def proceed_to_proposal(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -148,7 +148,7 @@ async def proceed_to_proposal(
         state = StateManager.update_stage(state, WorkflowStage.PROPOSAL)
         
         # Save state
-        await persistence_manager.save_state(workflow_id, state)
+        persistence_manager.save_state(workflow_id, state)
         
         logger.info("Workflow proceeding to proposal stage", workflow_id=workflow_id)
         
@@ -205,7 +205,7 @@ async def get_outreach_status(
     """
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -271,7 +271,7 @@ async def request_overview(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -302,7 +302,7 @@ async def request_overview(
         updated_state = StateManager.update_stage(updated_state, WorkflowStage.AWAITING_OVERVIEW)
         
         # Save updated state
-        await persistence_manager.save_state(workflow_id, updated_state)
+        persistence_manager.save_state(workflow_id, updated_state)
         
         logger.info("Overview request sent successfully", workflow_id=workflow_id)
         
@@ -335,7 +335,7 @@ async def check_overview_reply(
     
     try:
         # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
+        state = persistence_manager.load_state(workflow_id)
         if not state:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
@@ -417,7 +417,7 @@ async def check_overview_reply(
             updated_state = StateManager.update_stage(state, WorkflowStage.AWAITING_OVERVIEW_REPLY)
         
         # Save updated state
-        await persistence_manager.save_state(workflow_id, updated_state)
+        persistence_manager.save_state(workflow_id, updated_state)
         
         logger.info(
             "Overview reply processed successfully",
