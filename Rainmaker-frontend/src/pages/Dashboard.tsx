@@ -214,9 +214,7 @@ export default function Dashboard() {
                   isLoading={isLoading}
                 />
                 
-                <div className="text-xs text-gray-400 mt-3 text-center px-4">
-                  Example: "Find corporate event prospects in San Francisco, tech companies with 100+ employees"
-                </div>
+                
               </div>
             </div>
           </div>

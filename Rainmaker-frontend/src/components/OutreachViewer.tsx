@@ -10,7 +10,10 @@ import {
   ThumbsUp,
   ArrowRight,
   Loader2,
-  AlertCircle
+  AlertCircle,
+  RotateCcw,
+  MessageCircle,
+  Edit
 } from 'lucide-react';
 
 interface Campaign {
@@ -68,6 +71,11 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [initialized, setInitialized] = useState(false);
+
+  // Reset initialization when workflowId changes
+  useEffect(() => {
+    setInitialized(false);
+  }, [workflowId]);
 
   // Check workflow status and handle existing workflows
   useEffect(() => {
@@ -323,7 +331,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
       case 'reply_found':
         return <MessageSquare className="w-6 h-6" />;
       case 'overview_requesting':
-        return <Send className="w-6 h-6 animate-pulse" />;
+        return <Edit className="w-6 h-6 animate-pulse" />;
       case 'awaiting_overview':
         return <Clock className="w-6 h-6" />;
       case 'checking_overview':
@@ -863,9 +871,66 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
 
             {!eventOverview.can_proceed_to_proposal && (
               <div className="text-center py-6">
-                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-4">
-                  <p className="text-sm text-yellow-800">
+                <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4 mb-6">
+                  <p className="text-sm text-yellow-800 mb-4">
                     Need more details to create a comprehensive proposal. Consider following up for clarification.
+                  </p>
+                  
+                  <div className="flex flex-col sm:flex-row gap-3 justify-center">
+                    <motion.button
+                      onClick={checkOverviewReply}
+                      disabled={loading}
+                      className="bg-blue-600 hover:bg-blue-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all duration-200"
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                    >
+                      {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <RotateCcw className="w-4 h-4" />
+                          Recheck for Updates
+                        </>
+                      )}
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={requestOverview}
+                      disabled={loading}
+                      className="bg-orange-600 hover:bg-orange-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all duration-200"
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                    >
+                      {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <MessageCircle className="w-4 h-4" />
+                          Send Follow-up
+                        </>
+                      )}
+                    </motion.button>
+                    
+                    <motion.button
+                      onClick={proceedToPlan}
+                      disabled={loading}
+                      className="bg-gray-600 hover:bg-gray-700 disabled:bg-gray-400 text-white px-4 py-2 rounded-lg font-medium flex items-center gap-2 transition-all duration-200"
+                      whileHover={{ scale: 1.01 }}
+                      whileTap={{ scale: 0.99 }}
+                    >
+                      {loading ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <>
+                          <ArrowRight className="w-4 h-4" />
+                          Proceed Anyway
+                        </>
+                      )}
+                    </motion.button>
+                  </div>
+                  
+                  <p className="text-xs text-yellow-700 mt-3">
+                    You can recheck for new client responses, send another follow-up email, or proceed with the current information.
                   </p>
                 </div>
               </div>

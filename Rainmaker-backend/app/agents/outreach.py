@@ -336,7 +336,8 @@ class OutreachAgent:
                 subject=draft["subject"],
                 body=draft["body"],
                 thread_id=thread_id,
-                attachment=attachment
+                attachment_path=attachment["path"] if attachment else None,
+                attachment_filename=attachment["filename"] if attachment else None
             )
             logger.info("Email send result", result_status=result.get("status"), result_keys=list(result.keys()) if result else None)
             

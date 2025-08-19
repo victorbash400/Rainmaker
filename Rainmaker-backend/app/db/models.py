@@ -189,14 +189,20 @@ class Meeting(Base):
     __tablename__ = "meetings"
     
     id = Column(Integer, primary_key=True, index=True)
-    prospect_id = Column(Integer, ForeignKey("prospects.id", ondelete="CASCADE"), nullable=False)
-    meeting_type = Column(Enum("initial_call", "venue_visit", "planning_session", "final_walkthrough", name="meeting_type"), nullable=False)
+    workflow_id = Column(String(255), index=True)  # Added for workflow tracking
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)  # Added user tracking
+    prospect_id = Column(Integer, ForeignKey("prospects.id", ondelete="CASCADE"), nullable=True)  # Made nullable
+    prospect_name = Column(String(255), nullable=False)  # Added for direct storage
+    prospect_email = Column(String(255), nullable=False)  # Added for direct storage
+    prospect_company = Column(String(255))  # Added for direct storage
+    meeting_type = Column(Enum("initial_call", "venue_visit", "planning_session", "final_walkthrough", "consultation", name="meeting_type"), default="consultation")
     title = Column(String(255), nullable=False)
     description = Column(Text)
     scheduled_at = Column(DateTime(timezone=True), nullable=False)
     duration_minutes = Column(Integer, default=60)
     location = Column(String(255))
     meeting_url = Column(String(500))
+    google_meet_link = Column(String(500))  # Added specifically for Google Meet
     calendar_event_id = Column(String(255))
     attendees = Column(JSON)
     agenda = Column(Text)
@@ -207,6 +213,7 @@ class Meeting(Base):
     
     # Relationships
     prospect = relationship("Prospect", back_populates="meetings")
+    user = relationship("User")
 
 
 class AgentActivity(Base):

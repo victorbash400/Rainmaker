@@ -208,24 +208,51 @@ class Proposal(ProposalBase):
 
 # Meeting schemas
 class MeetingBase(BaseModel):
-    meeting_type: str
     title: str
     description: Optional[str] = None
     scheduled_at: datetime
     duration_minutes: int = 60
     location: Optional[str] = None
     meeting_url: Optional[str] = None
+    google_meet_link: Optional[str] = None
     attendees: Optional[Dict[str, Any]] = None
     agenda: Optional[str] = None
+    meeting_type: str = "consultation"
 
 
 class MeetingCreate(MeetingBase):
-    prospect_id: int
+    workflow_id: Optional[str] = None
+    prospect_id: Optional[int] = None
+    prospect_name: str
+    prospect_email: str
+    prospect_company: Optional[str] = None
+    calendar_event_id: Optional[str] = None
+    status: str = "scheduled"
 
 
-class Meeting(MeetingBase):
+class MeetingUpdate(BaseModel):
+    title: Optional[str] = None
+    description: Optional[str] = None
+    scheduled_at: Optional[datetime] = None
+    duration_minutes: Optional[int] = None
+    location: Optional[str] = None
+    meeting_url: Optional[str] = None
+    google_meet_link: Optional[str] = None
+    attendees: Optional[Dict[str, Any]] = None
+    agenda: Optional[str] = None
+    notes: Optional[str] = None
+    status: Optional[str] = None
+    meeting_type: Optional[str] = None
+
+
+class MeetingResponse(MeetingBase):
     id: int
-    prospect_id: int
+    workflow_id: Optional[str]
+    user_id: int
+    prospect_id: Optional[int]
+    prospect_name: str
+    prospect_email: str
+    prospect_company: Optional[str]
     calendar_event_id: Optional[str]
     notes: Optional[str]
     status: str
@@ -234,6 +261,11 @@ class Meeting(MeetingBase):
     
     class Config:
         from_attributes = True
+
+
+# Legacy Meeting schema for backwards compatibility
+class Meeting(MeetingResponse):
+    pass
 
 
 # User schemas

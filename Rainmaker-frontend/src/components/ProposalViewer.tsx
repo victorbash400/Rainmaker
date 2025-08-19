@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { CheckCircle, Clock, FileText, Send, Eye, Download, AlertTriangle, Calendar } from 'lucide-react'
+import { CheckCircle, Clock, FileText, Send, Eye, Download, AlertTriangle, Calendar, FileCheck } from 'lucide-react'
 import { motion } from 'framer-motion'
 
 interface ProposalViewerProps {
@@ -30,7 +30,7 @@ type ProposalStage =
   | 'reviewing'
   | 'sending'
   | 'sent'
-  | 'awaiting_meeting'
+  
 
 export default function ProposalViewer({ workflowId, onComplete }: ProposalViewerProps) {
   const [proposalStage, setProposalStage] = useState<ProposalStage>('not_generated')
@@ -121,10 +121,14 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
       setProposalStage('sent')
       await loadProposalStatus() // Refresh status
       
-      // Auto-advance to meeting response checking after a delay
-      setTimeout(() => {
-        setProposalStage('awaiting_meeting')
-      }, 2000)
+      // Trigger workflow transition to meeting phase
+      if (onComplete) {
+        setTimeout(() => {
+          onComplete() // This will trigger the parent to refresh workflow status and switch to MeetingViewer
+        }, 1500)
+      }
+      
+      
     } catch (err) {
       console.error('Failed to send proposal:', err)
       setError(err instanceof Error ? err.message : 'Failed to send proposal')
@@ -134,39 +138,7 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
     }
   }
 
-  const handleCheckMeetingResponse = async () => {
-    setIsLoading(true)
-    setError(null)
-
-    try {
-      const response = await fetch(`/api/v1/workflow-proposals/${workflowId}/check-meeting-response`, {
-        method: 'POST'
-      })
-      
-      if (!response.ok) {
-        const errorData = await response.json()
-        throw new Error(errorData.detail || 'Failed to check meeting response')
-      }
-
-      const result = await response.json()
-      if (result.status === 'no_reply_found') {
-        // No reply yet, keep checking
-        setError(null)
-      } else if (result.status === 'meeting_response_received') {
-        if (result.wants_meeting) {
-          // Success! Meeting requested
-          if (onComplete) onComplete()
-        } else {
-          setError('Prospect declined meeting request')
-        }
-      }
-    } catch (err) {
-      console.error('Failed to check meeting response:', err)
-      setError(err instanceof Error ? err.message : 'Failed to check meeting response')
-    } finally {
-      setIsLoading(false)
-    }
-  }
+  
 
   const getStageIcon = (stage: ProposalStage) => {
     switch (stage) {
@@ -180,9 +152,8 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
       case 'sending':
         return <div className="w-8 h-8 border-2 border-gray-400 border-t-black rounded-full animate-spin" />
       case 'sent':
-        return <Send className="h-8 w-8 text-green-600" />
-      case 'awaiting_meeting':
-        return <Calendar className="h-8 w-8 text-blue-600" />
+        return <FileCheck className="h-8 w-8 text-green-600" />
+      
       default:
         return <FileText className="h-8 w-8 text-gray-400" />
     }
@@ -202,8 +173,7 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
         return 'Sending Proposal...'
       case 'sent':
         return 'Proposal Sent'
-      case 'awaiting_meeting':
-        return 'Awaiting Meeting Response'
+      
       default:
         return 'Proposal'
     }
@@ -223,8 +193,7 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
         return 'Sending proposal email with PDF attachment to the client...'
       case 'sent':
         return 'Proposal has been sent to the client with meeting request'
-      case 'awaiting_meeting':
-        return 'Waiting for client response to schedule a meeting'
+      
       default:
         return ''
     }
@@ -232,12 +201,9 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
 
   return (
     <div className="bg-white rounded-lg border border-gray-200 p-6 min-h-[400px]">
-      <div className="flex items-center justify-between mb-6">
-        <div className="flex items-center space-x-3">
-          <div className="w-6 h-6 flex items-center justify-center">
-            {getStageIcon(proposalStage)}
-          </div>
-          <span className="text-sm font-medium text-black">📊 AI Proposal Generation</span>
+      <div className="mb-6">
+        <div className="text-center">
+          <span className="text-sm font-medium text-black">AI Proposal Generation</span>
         </div>
       </div>
 
@@ -315,8 +281,27 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
               disabled={isLoading || !proposalStatus?.can_generate}
               className="flex items-center space-x-2 px-6 py-3 bg-black hover:bg-gray-900 text-white rounded-lg transition-colors duration-200 disabled:opacity-50 disabled:cursor-not-allowed"
             >
-              <FileText className="h-4 w-4" />
-              <span>Generate Proposal</span>
+              {isLoading ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+                  <span>Generating...</span>
+                </>
+              ) : (
+                <>
+                  <FileText className="h-4 w-4" />
+                  <span>Generate Proposal</span>
+                </>
+              )}
+            </button>
+          )}
+
+          {proposalStage === 'generating' && (
+            <button
+              disabled={true}
+              className="flex items-center space-x-2 px-6 py-3 bg-gray-600 text-white rounded-lg cursor-not-allowed"
+            >
+              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              <span>Generating...</span>
             </button>
           )}
 
@@ -340,16 +325,7 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
             </>
           )}
 
-          {proposalStage === 'awaiting_meeting' && (
-            <button
-              onClick={handleCheckMeetingResponse}
-              disabled={isLoading}
-              className="flex items-center space-x-2 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors duration-200 disabled:opacity-50"
-            >
-              <Calendar className="h-4 w-4" />
-              <span>Check for Meeting Response</span>
-            </button>
-          )}
+          
         </div>
 
         {/* Loading States */}

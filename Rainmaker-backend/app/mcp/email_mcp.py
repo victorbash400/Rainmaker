@@ -24,8 +24,8 @@ class EmailMCP:
         if not all([self.email_address, self.email_password]):
             logger.warning("Email credentials (EMAIL_ADDRESS, EMAIL_PASSWORD) are not set. EmailMCP will not function.")
 
-    def send_email(self, to: str, subject: str, body: str, thread_id: str = None) -> Dict[str, Any]:
-        """Sends an email using SMTP with optional thread tracking."""
+    def send_email(self, to: str, subject: str, body: str, thread_id: str = None, attachment_path: str = None, attachment_filename: str = None) -> Dict[str, Any]:
+        """Sends an email using SMTP with optional thread tracking and PDF attachment."""
         if not all([self.email_address, self.email_password]):
             error_msg = "Email credentials are not configured."
             logger.error(error_msg)
@@ -45,6 +45,20 @@ class EmailMCP:
             msg['Message-ID'] = message_id
             
         msg.attach(MIMEText(body, 'plain'))
+        
+        # Add PDF attachment if provided
+        if attachment_path and os.path.exists(attachment_path):
+            from email.mime.application import MIMEApplication
+            try:
+                with open(attachment_path, 'rb') as f:
+                    attach = MIMEApplication(f.read(), _subtype='pdf')
+                    attach.add_header('Content-Disposition', 'attachment', 
+                                    filename=attachment_filename or os.path.basename(attachment_path))
+                    msg.attach(attach)
+                logger.info(f"PDF attachment added: {attachment_filename or os.path.basename(attachment_path)}")
+            except Exception as e:
+                logger.error(f"Failed to attach PDF: {e}")
+                return {"status": "error", "message": f"Failed to attach PDF: {str(e)}"}
 
         try:
             with smtplib.SMTP(self.smtp_server, self.smtp_port) as server:
@@ -172,9 +186,21 @@ class EmailMCP:
             try:
                 from email.utils import parsedate_to_datetime
                 from datetime import datetime
-                replies.sort(key=lambda x: parsedate_to_datetime(x["date"]) if x["date"] else datetime.min, reverse=True)
-            except:
-                pass  # If date parsing fails, keep original order
+
+                def sort_key(email):
+                    if not email.get("date"):
+                        return datetime.min
+                    try:
+                        return parsedate_to_datetime(email["date"])
+                    except Exception:
+                        logger.warning(f"Could not parse date string: {email.get('date')}")
+                        return datetime.min
+
+                replies.sort(key=sort_key, reverse=True)
+                logger.info("Successfully sorted email replies by date.")
+            except Exception as e:
+                logger.error("Failed to sort email replies by date", error=str(e))
+                # Keep original order if sorting fails catastrophically
         return replies
 
 # Global instance

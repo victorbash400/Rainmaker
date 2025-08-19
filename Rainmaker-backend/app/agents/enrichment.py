@@ -500,6 +500,7 @@ class EnrichmentAgent:
             status="complete",
             data={
                 "citations_count": len(all_citations),
+                "citations": all_citations,  # Add the actual citations array
                 "profile_summary": {
                     "role": role,
                     "industry": industry,

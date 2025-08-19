@@ -209,6 +209,32 @@ async def send_proposal(
         # Save updated state
         await persistence_manager.save_state(workflow_id, state)
         
+        # Force sync campaign coordinator to detect the phase change and broadcast
+        try:
+            from app.agents.campaign_coordinator import get_global_coordinator
+            
+            # Get the global coordinator instance
+            coordinator = get_global_coordinator()
+            
+            # Find the plan_id for this workflow
+            plan_id = None
+            for pid, execution_state in coordinator.executing_campaigns.items():
+                if execution_state.get("workflow_id") == workflow_id:
+                    plan_id = pid
+                    break
+            
+            if plan_id:
+                logger.info("🔄 Triggering force sync for meeting phase transition", 
+                          plan_id=plan_id, workflow_id=workflow_id)
+                await coordinator.force_sync_workflow_state(plan_id)
+            else:
+                logger.warning("Could not find plan_id for workflow to trigger meeting sync", 
+                             workflow_id=workflow_id)
+                
+        except Exception as e:
+            logger.warning("Failed to trigger campaign coordinator sync for meeting phase", 
+                         error=str(e), workflow_id=workflow_id)
+        
         logger.info(
             "Proposal sent successfully",
             workflow_id=workflow_id,
@@ -237,116 +263,7 @@ async def send_proposal(
         )
 
 
-@router.post("/{workflow_id}/check-meeting-response")
-async def check_meeting_response(
-    workflow_id: str
-    # TODO: Re-enable auth after testing: current_user: User = Depends(get_current_user)
-) -> Dict[str, Any]:
-    """
-    Check for meeting response after proposal was sent
-    """
-    logger.info("Checking for meeting response", workflow_id=workflow_id)
-    
-    try:
-        # Load workflow state
-        state = await persistence_manager.load_state(workflow_id)
-        if not state:
-            raise HTTPException(
-                status_code=status.HTTP_404_NOT_FOUND,
-                detail="Workflow not found"
-            )
-        
-        # Verify workflow is in MEETING stage
-        if state.get("current_stage") != WorkflowStage.MEETING:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Workflow not awaiting meeting response. Current stage: {state.get('current_stage')}"
-            )
-        
-        # Get prospect email from state
-        prospect_data = state.get("prospect_data")
-        prospect_email = getattr(prospect_data, 'email', '') if prospect_data else ''
-        if not prospect_data or not prospect_email:
-            raise HTTPException(
-                status_code=status.HTTP_400_BAD_REQUEST,
-                detail="No prospect email found in workflow state"
-            )
-        
-        # Get the time when proposal was sent to only check for newer emails
-        proposal = state.get("proposal", {})
-        sent_at = proposal.get("sent_at")
-        
-        # Check for replies using EmailMCP
-        if sent_at:
-            try:
-                sent_time = datetime.fromisoformat(sent_at.replace('Z', '+00:00'))
-                since_date = sent_time.strftime("%d-%b-%Y")
-                replies = email_mcp.check_for_replies(prospect_email, since_date=since_date)
-            except:
-                # Fallback to recent check
-                from datetime import timedelta
-                recent_time = datetime.now() - timedelta(minutes=15)
-                recent_date = recent_time.strftime("%d-%b-%Y")
-                replies = email_mcp.check_for_replies(prospect_email, since_date=recent_date)
-        else:
-            # Fallback to recent check
-            from datetime import timedelta
-            recent_time = datetime.now() - timedelta(minutes=15)
-            recent_date = recent_time.strftime("%d-%b-%Y")
-            replies = email_mcp.check_for_replies(prospect_email, since_date=recent_date)
-        
-        if not replies:
-            logger.info("No meeting responses found", workflow_id=workflow_id)
-            return {
-                "status": "no_reply_found",
-                "message": "No meeting response received yet. Check again later!"
-            }
-        
-        # Process the most recent reply for meeting interest
-        logger.info(f"Found {len(replies)} replies for meeting", workflow_id=workflow_id)
-        latest_reply = replies[0]  # Most recent reply
-        
-        # Analyze the meeting response
-        meeting_analysis = await _analyze_meeting_response(latest_reply)
-        
-        # Update state with meeting response
-        state["meeting_response"] = {
-            "reply_body": latest_reply.get("body", ""),
-            "analysis": meeting_analysis,
-            "received_at": latest_reply.get("date", "")
-        }
-        
-        # Update workflow stage based on analysis
-        if meeting_analysis.get("wants_meeting", False):
-            # Mark workflow as completed successfully
-            state = StateManager.update_stage(state, WorkflowStage.COMPLETED)
-        
-        # Save updated state
-        await persistence_manager.save_state(workflow_id, state)
-        
-        logger.info(
-            "Meeting response processed successfully",
-            workflow_id=workflow_id,
-            wants_meeting=meeting_analysis.get("wants_meeting", False)
-        )
-        
-        return {
-            "status": "meeting_response_received",
-            "wants_meeting": meeting_analysis.get("wants_meeting", False),
-            "response_summary": meeting_analysis.get("summary", ""),
-            "next_steps": meeting_analysis.get("next_steps", ""),
-            "can_setup_meeting": meeting_analysis.get("wants_meeting", False),
-            "message": "Meeting response received and analyzed!"
-        }
-        
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error("Failed to check meeting response", error=str(e), workflow_id=workflow_id)
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to check meeting response: {str(e)}"
-        )
+
 
 
 @router.post("/{workflow_id}/setup-meeting")

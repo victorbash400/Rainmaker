@@ -16,7 +16,7 @@ if sys.platform == "win32":
     asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
 
 from app.core.config import settings
-from app.api.v1 import prospects, campaigns, conversations, proposals, meetings, auth, campaign_planning, browser_viewer, enrichment_viewer, outreach, workflow_proposals
+from app.api.v1 import prospects, campaigns, conversations, proposals, meetings, auth, campaign_planning, browser_viewer, enrichment_viewer, outreach, workflow_proposals, calendar, meeting_workflow
 from app.db.session import engine
 from app.db import models
 
@@ -100,6 +100,8 @@ app.include_router(browser_viewer.router, prefix="/api/v1/browser-viewer", tags=
 app.include_router(enrichment_viewer.router, prefix="/api/v1/enrichment-viewer", tags=["enrichment-viewer"])
 app.include_router(outreach.router, prefix="/api/v1/outreach", tags=["outreach"])
 app.include_router(workflow_proposals.router, prefix="/api/v1/workflow-proposals", tags=["workflow-proposals"])
+app.include_router(calendar.router, prefix="/api/v1/calendar", tags=["calendar"])
+app.include_router(meeting_workflow.router, prefix="/api/v1/meeting-workflow", tags=["meeting-workflow"])
 
 
 @app.get("/")

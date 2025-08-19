@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react'
-import { Pause, RotateCcw, X, Clock, CheckCircle, AlertTriangle, Plus } from 'lucide-react'
+import { Pause, RotateCcw, X, Clock, CheckCircle, AlertTriangle, Plus, Radio, MessageSquarePlus } from 'lucide-react'
 import { useNavigate } from 'react-router-dom'
 import { 
   getCampaignPlans, 
@@ -10,6 +10,7 @@ import BrowserViewer from '@/components/BrowserViewer'
 import EnrichmentViewer from '@/components/EnrichmentViewer'
 import OutreachViewer from '@/components/OutreachViewer'
 import ProposalViewer from '@/components/ProposalViewer'
+import MeetingViewer from '@/components/MeetingViewer'
 
 // AI Thought Process Component
 function AIThoughtProcess({ workflowId }: { workflowId: string }) {
@@ -114,6 +115,58 @@ export default function Workflows() {
   const navigate = useNavigate()
   const wsRef = useRef<WebSocket | null>(null)
 
+  const generateStages = (status: { current_phase: string, status: string, metrics: any }) => {
+    const stages = [
+      {
+        name: 'hunting',
+        status: (['enriching', 'outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? 'complete' as const : 
+                (['discovery', 'hunting'].includes(status.current_phase)) ? 'active' as const : 'pending' as const,
+        duration: (['enriching', 'outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? '2m 15s' : undefined
+      },
+      {
+        name: 'enriching',
+        status: (['outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? 'complete' as const :
+                status.current_phase === 'enriching' ? 'active' as const : 'pending' as const,
+        duration: (['outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? '1m 45s' : undefined
+      },
+      {
+        name: 'outreach',
+        status: (['conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? 'complete' as const :
+                (['outreach', 'awaiting_reply'].includes(status.current_phase)) ? 'active' as const : 'pending' as const,
+        duration: (['conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? '3m 20s' : undefined
+      },
+      {
+        name: 'conversation',
+        status: (['proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? 'complete' as const :
+                (['conversation', 'awaiting_overview', 'awaiting_overview_reply'].includes(status.current_phase)) ? 'active' as const : 'pending' as const,
+        duration: (['proposal', 'meeting', 'completed'].includes(status.current_phase) || status.status === 'completed') ? '12m 30s' : undefined
+      },
+      {
+        name: 'proposal',
+        status: (status.metrics.proposals_generated > 0 || status.status === 'completed') ? 'complete' as const :
+                status.current_phase === 'proposal' ? 'active' as const : 'pending' as const,
+        duration: (status.metrics.proposals_generated > 0 || status.status === 'completed') ? '5m 15s' : undefined
+      },
+      {
+        name: 'meeting',
+        status: status.status === 'completed' ? 'complete' as const :
+                status.current_phase === 'meeting' ? 'active' as const : 'pending' as const,
+        duration: status.status === 'completed' ? '45m' : undefined
+      }
+    ];
+  
+    if (status.status === 'completed') {
+      // Mark all previous stages as complete
+      stages.forEach(stage => stage.status = 'complete');
+      stages.push({
+        name: 'Done',
+        status: 'complete' as const,
+        duration: ''
+      });
+    }
+    return stages;
+  }
+
   useEffect(() => {
     loadWorkflows()
     setupWebSocket()
@@ -149,44 +202,7 @@ export default function Workflows() {
                   metrics: data.metrics || workflow.metrics
                 }
                 
-                const stages = [
-                  {
-                    name: 'hunting',
-                    status: (updatedStatus.current_phase === 'enriching' || updatedStatus.current_phase === 'completed') ? 'complete' as const : 
-                            (updatedStatus.current_phase === 'discovery' || updatedStatus.current_phase === 'hunting') ? 'active' as const : 'pending' as const,
-                    duration: (updatedStatus.current_phase === 'enriching' || updatedStatus.current_phase === 'completed') ? '2m 15s' : undefined
-                  },
-                  {
-                    name: 'enriching',
-                    status: updatedStatus.current_phase === 'completed' ? 'complete' as const :
-                            updatedStatus.current_phase === 'enriching' ? 'active' as const : 'pending' as const,
-                    duration: updatedStatus.current_phase === 'completed' ? '1m 45s' : undefined
-                  },
-                  {
-                    name: 'outreach',
-                    status: (['conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'completed'].includes(updatedStatus.current_phase)) ? 'complete' as const :
-                            (['outreach', 'awaiting_reply'].includes(updatedStatus.current_phase)) ? 'active' as const : 'pending' as const,
-                    duration: (['conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'completed'].includes(updatedStatus.current_phase)) ? '3m 20s' : undefined
-                  },
-                  {
-                    name: 'conversation',
-                    status: (['proposal', 'meeting', 'completed'].includes(updatedStatus.current_phase)) ? 'complete' as const :
-                            (['conversation', 'awaiting_overview', 'awaiting_overview_reply'].includes(updatedStatus.current_phase)) ? 'active' as const : 'pending' as const,
-                    duration: (['proposal', 'meeting', 'completed'].includes(updatedStatus.current_phase)) ? '12m 30s' : undefined
-                  },
-                  {
-                    name: 'proposal',
-                    status: updatedStatus.metrics.proposals_generated > 0 ? 'complete' as const :
-                            updatedStatus.current_phase === 'proposal' ? 'active' as const : 'pending' as const,
-                    duration: updatedStatus.metrics.proposals_generated > 0 ? '5m 15s' : undefined
-                  },
-                  {
-                    name: 'meeting',
-                    status: updatedStatus.status === 'completed' ? 'complete' as const :
-                            updatedStatus.current_phase === 'meeting' ? 'active' as const : 'pending' as const,
-                    duration: updatedStatus.status === 'completed' ? '45m' : undefined
-                  }
-                ]
+                const stages = generateStages(updatedStatus)
                 
                 return {
                   ...workflow,
@@ -242,45 +258,7 @@ export default function Workflows() {
               const status = await getCampaignExecutionStatus(plan.plan_id)
               console.log(`Campaign ${plan.plan_id} status:`, status)
               
-              // Generate stages based on execution status
-              const stages = [
-                {
-                  name: 'hunting',
-                  status: (status.current_phase === 'enriching' || status.current_phase === 'completed') ? 'complete' as const : 
-                          (status.current_phase === 'discovery' || status.current_phase === 'hunting') ? 'active' as const : 'pending' as const,
-                  duration: (status.current_phase === 'enriching' || status.current_phase === 'completed') ? '2m 15s' : undefined
-                },
-                {
-                  name: 'enriching',
-                  status: status.current_phase === 'completed' ? 'complete' as const :
-                          status.current_phase === 'enriching' ? 'active' as const : 'pending' as const,
-                  duration: status.current_phase === 'completed' ? '1m 45s' : undefined
-                },
-                {
-                  name: 'outreach',
-                  status: (['conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'completed'].includes(status.current_phase)) ? 'complete' as const :
-                          (['outreach', 'awaiting_reply'].includes(status.current_phase)) ? 'active' as const : 'pending' as const,
-                  duration: (['conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'completed'].includes(status.current_phase)) ? '3m 20s' : undefined
-                },
-                {
-                  name: 'conversation',
-                  status: (['proposal', 'meeting', 'completed'].includes(status.current_phase)) ? 'complete' as const :
-                          (['conversation', 'awaiting_overview', 'awaiting_overview_reply'].includes(status.current_phase)) ? 'active' as const : 'pending' as const,
-                  duration: (['proposal', 'meeting', 'completed'].includes(status.current_phase)) ? '12m 30s' : undefined
-                },
-                {
-                  name: 'proposal',
-                  status: status.metrics.proposals_generated > 0 ? 'complete' as const :
-                          status.current_phase === 'proposal' ? 'active' as const : 'pending' as const,
-                  duration: status.metrics.proposals_generated > 0 ? '5m 15s' : undefined
-                },
-                {
-                  name: 'meeting',
-                  status: status.status === 'completed' ? 'complete' as const :
-                          status.current_phase === 'meeting' ? 'active' as const : 'pending' as const,
-                  duration: status.status === 'completed' ? '45m' : undefined
-                }
-              ]
+              const stages = generateStages(status)
 
               return {
                 plan_id: plan.plan_id,
@@ -378,20 +356,17 @@ export default function Workflows() {
                     Monitor and control your AI agent workflows
                   </p>
                 </div>
-                <div className="flex items-center space-x-3">
-                  {/* Real-time connection status */}
-                  <div className="flex items-center space-x-2 px-3 py-2 bg-gray-50 rounded-lg">
-                    <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-red-500'}`}></div>
-                    <span className="text-xs text-gray-600">
-                      {isConnected ? 'Live Updates' : 'Disconnected'}
-                    </span>
+                <div className="flex items-center space-x-4">
+                  <div className="flex items-center space-x-2 text-sm text-gray-600">
+                    <Radio className={`h-4 w-4 ${isConnected ? 'text-green-500' : 'text-gray-400'}`} />
+                    <span>Live Updates</span>
                   </div>
                   <button 
                     onClick={handleNewWorkflow}
-                    className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors duration-200"
+                    className="flex items-center space-x-2 px-3 py-1.5 bg-black text-white hover:bg-gray-800 rounded-md transition-colors text-sm"
                   >
-                    <Plus className="h-4 w-4" />
-                    <span className="text-sm font-medium">New Workflow</span>
+                    <MessageSquarePlus className="h-4 w-4" />
+                    <span>New Workflow</span>
                   </button>
                 </div>
               </div>
@@ -406,7 +381,6 @@ export default function Workflows() {
                         <div className="flex-1">
                           <div className="flex items-center space-x-3">
                             <h3 className="font-medium text-black">{workflow.campaign_name}</h3>
-                            {workflow.status === 'executing' && <div className="w-4 h-4 border-2 border-gray-400 border-t-black rounded-full animate-spin"></div>}
                             {workflow.status === 'failed' && <AlertTriangle className="h-4 w-4 text-red-600" />}
                             {workflow.status === 'completed' && <CheckCircle className="h-4 w-4 text-green-600" />}
                           </div>
@@ -492,14 +466,28 @@ export default function Workflows() {
                             </>
                           )}
                           
-                          {(workflow.current_phase === 'proposal' || workflow.current_phase === 'meeting') && (
+                          {workflow.current_phase === 'proposal' && (
                             <>
                               {console.log('📋 RENDERING ProposalViewer for workflow:', workflow.workflow_id, 'phase:', workflow.current_phase)}
-                              {/* Proposal Viewer for proposal generation and meeting setup */}
+                              {/* Proposal Viewer for proposal generation and sending */}
                               <ProposalViewer 
                                 workflowId={workflow.workflow_id}
                                 onComplete={() => {
                                   // Refresh workflow data when proposal workflow completes
+                                  loadWorkflows();
+                                }}
+                              />
+                            </>
+                          )}
+                          
+                          {workflow.current_phase === 'meeting' && (
+                            <>
+                              {console.log('📅 RENDERING MeetingViewer for workflow:', workflow.workflow_id, 'phase:', workflow.current_phase)}
+                              {/* Meeting Viewer for meeting response checking and scheduling */}
+                              <MeetingViewer 
+                                workflowId={workflow.workflow_id}
+                                onComplete={() => {
+                                  // Refresh workflow data when meeting workflow completes
                                   loadWorkflows();
                                 }}
                               />
@@ -512,7 +500,8 @@ export default function Workflows() {
                             current_phase: workflow.current_phase,
                             status: workflow.status,
                             all_phases: ['discovery', 'hunting', 'enriching', 'outreach', 'awaiting_reply', 'conversation', 'awaiting_overview', 'awaiting_overview_reply', 'proposal', 'meeting'],
-                            should_show_proposal: workflow.current_phase === 'proposal' || workflow.current_phase === 'meeting'
+                            should_show_proposal: workflow.current_phase === 'proposal',
+                            should_show_meeting: workflow.current_phase === 'meeting'
                           })}
                           
                           {/* Default view for other phases */}
@@ -562,7 +551,7 @@ export default function Workflows() {
 
         {/* Agent Progress Sidebar - Clean Tasteful Design */}
         {workflows.length > 0 && (
-          <div className="w-80 bg-white p-8 flex-shrink-0 flex items-center">
+          <div className="w-72 bg-white p-6 pl-12 flex-shrink-0 flex items-center">
             <div className="w-full">
               <h3 className="text-base font-medium text-black mb-6">Agent Progress</h3>
               <div className="space-y-8">
@@ -574,7 +563,7 @@ export default function Workflows() {
                         {workflow.campaign_name}
                       </h4>
                       <p className="text-xs text-gray-500 mt-1">
-                        {workflow.status.replace('_', ' ')}
+                        {workflow.status === 'completed' ? 'Done' : workflow.status.replace('_', ' ')}
                       </p>
                     </div>
                     
@@ -609,7 +598,9 @@ export default function Workflows() {
                                   </svg>
                                 </div>
                               ) : (
-                                <div className="w-6 h-6 border-2 border-gray-200 rounded-full bg-white"></div>
+                                <div className="w-6 h-6 flex items-center justify-center">
+                                  <div className="w-4 h-4 border-2 border-gray-200 rounded-full bg-white"></div>
+                                </div>
                               )}
                             </div>
                             
