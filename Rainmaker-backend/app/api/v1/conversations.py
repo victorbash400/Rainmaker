@@ -1,137 +1,198 @@
 """
-Conversations API endpoints
+Conversations API endpoints for email message tracking
 """
+from fastapi import APIRouter, HTTPException, Depends
+from sqlalchemy.orm import Session
+from typing import Dict, List, Any, Optional
+import structlog
+from datetime import datetime
 
-from typing import List, Optional
-from fastapi import APIRouter, Depends, HTTPException, Query
-from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func
-from sqlalchemy.orm import selectinload
-
-from app.db.session import get_db
-from app.db.models import Conversation, Message, User
-from app.db.schemas import (
-    Conversation as ConversationSchema,
-    ConversationCreate,
-    Message as MessageSchema,
-    MessageCreate,
-    PaginatedResponse
-)
-from app.api.deps import get_current_active_user
-
+from app.api.deps import get_db, get_current_user
+from app.db.models import User, EmailMessage, Prospect
+from app.db.schemas import ConversationResponse, EmailMessageCreate, EmailMessageResponse
+from sqlalchemy import desc, func
 
 router = APIRouter()
+logger = structlog.get_logger(__name__)
 
-
-@router.get("/", response_model=PaginatedResponse)
+@router.get("/", response_model=List[ConversationResponse])
 async def get_conversations(
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
-    prospect_id: Optional[int] = None,
-    channel: Optional[str] = None,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get paginated list of conversations"""
-    query = select(Conversation)
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> List[ConversationResponse]:
+    """
+    Get all conversations (grouped by workflow_id) for the current user
+    """
+    logger.info("API: Getting conversations", user_id=current_user.id)
     
-    # Apply filters
-    if prospect_id:
-        query = query.where(Conversation.prospect_id == prospect_id)
-    if channel:
-        query = query.where(Conversation.channel == channel)
-    
-    # Get total count
-    count_query = select(func.count()).select_from(query.subquery())
-    total_result = await db.execute(count_query)
-    total = total_result.scalar()
-    
-    # Apply pagination
-    offset = (page - 1) * per_page
-    query = query.offset(offset).limit(per_page).order_by(Conversation.updated_at.desc())
-    
-    # Execute query
-    result = await db.execute(query)
-    conversations = result.scalars().all()
-    
-    return {
-        "items": conversations,
-        "total": total,
-        "page": page,
-        "per_page": per_page,
-        "pages": (total + per_page - 1) // per_page
-    }
+    try:
+        # Get all workflows with email messages for this user
+        conversations_data = db.query(
+            EmailMessage.workflow_id,
+            EmailMessage.recipient_email,
+            func.count(EmailMessage.id).label('message_count'),
+            func.max(EmailMessage.timestamp).label('last_timestamp')
+        ).filter(
+            EmailMessage.user_id == current_user.id
+        ).group_by(
+            EmailMessage.workflow_id,
+            EmailMessage.recipient_email
+        ).all()
+        
+        conversations = []
+        
+        for conv_data in conversations_data:
+            workflow_id = conv_data.workflow_id
+            prospect_email = conv_data.recipient_email
+            
+            # Get all messages for this conversation
+            messages = db.query(EmailMessage).filter(
+                EmailMessage.workflow_id == workflow_id,
+                EmailMessage.user_id == current_user.id
+            ).order_by(EmailMessage.timestamp.asc()).all()
+            
+            if not messages:
+                continue
+                
+            # Get prospect info if available
+            prospect = None
+            if messages[0].prospect_id:
+                prospect = db.query(Prospect).filter(Prospect.id == messages[0].prospect_id).first()
+            
+            # Get last message for preview
+            last_message = max(messages, key=lambda m: m.timestamp)
+            
+            # Determine status based on message flow
+            status = "waiting"  # Default
+            if any(msg.direction == "received" for msg in messages[-3:]):  # Recent reply
+                status = "active"
+            elif last_message.message_type in ["calendar_invite"] and last_message.timestamp:
+                status = "completed"
+            
+            conversation = ConversationResponse(
+                workflow_id=workflow_id,
+                prospect_name=prospect.name if prospect else None,
+                prospect_email=prospect_email,
+                prospect_company=prospect.company_name if prospect else None,
+                message_count=len(messages),
+                last_message=last_message.body[:100] + "..." if len(last_message.body) > 100 else last_message.body,
+                last_timestamp=last_message.timestamp,
+                status=status,
+                messages=[EmailMessageResponse.from_orm(msg) for msg in messages]
+            )
+            
+            conversations.append(conversation)
+        
+        # Sort by last message timestamp (most recent first)
+        conversations.sort(key=lambda c: c.last_timestamp, reverse=True)
+        
+        logger.info("Conversations retrieved successfully", 
+                   user_id=current_user.id, 
+                   count=len(conversations))
+        
+        return conversations
+        
+    except Exception as e:
+        logger.error("Failed to get conversations", 
+                    user_id=current_user.id, 
+                    error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get conversations: {str(e)}")
 
 
-@router.get("/{conversation_id}", response_model=ConversationSchema)
+@router.get("/{workflow_id}", response_model=ConversationResponse)
 async def get_conversation(
-    conversation_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get a specific conversation by ID"""
-    query = select(Conversation).where(Conversation.id == conversation_id)
-    result = await db.execute(query)
-    conversation = result.scalar_one_or_none()
+    workflow_id: str,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> ConversationResponse:
+    """
+    Get a specific conversation by workflow_id
+    """
+    logger.info("API: Getting conversation", workflow_id=workflow_id, user_id=current_user.id)
     
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    return conversation
+    try:
+        # Get all messages for this workflow
+        messages = db.query(EmailMessage).filter(
+            EmailMessage.workflow_id == workflow_id,
+            EmailMessage.user_id == current_user.id
+        ).order_by(EmailMessage.timestamp.asc()).all()
+        
+        if not messages:
+            raise HTTPException(status_code=404, detail="Conversation not found")
+        
+        # Get prospect info if available
+        prospect = None
+        if messages[0].prospect_id:
+            prospect = db.query(Prospect).filter(Prospect.id == messages[0].prospect_id).first()
+        
+        # Get last message
+        last_message = max(messages, key=lambda m: m.timestamp)
+        
+        # Determine status
+        status = "waiting"
+        if any(msg.direction == "received" for msg in messages[-3:]):
+            status = "active"
+        elif last_message.message_type == "calendar_invite":
+            status = "completed"
+        
+        conversation = ConversationResponse(
+            workflow_id=workflow_id,
+            prospect_name=prospect.name if prospect else None,
+            prospect_email=messages[0].recipient_email,
+            prospect_company=prospect.company_name if prospect else None,
+            message_count=len(messages),
+            last_message=last_message.body[:100] + "..." if len(last_message.body) > 100 else last_message.body,
+            last_timestamp=last_message.timestamp,
+            status=status,
+            messages=[EmailMessageResponse.from_orm(msg) for msg in messages]
+        )
+        
+        logger.info("Conversation retrieved successfully", workflow_id=workflow_id)
+        return conversation
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to get conversation", 
+                    workflow_id=workflow_id, 
+                    error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get conversation: {str(e)}")
 
 
-@router.post("/", response_model=ConversationSchema)
-async def create_conversation(
-    conversation_data: ConversationCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Create a new conversation"""
-    db_conversation = Conversation(**conversation_data.dict())
-    db.add(db_conversation)
-    await db.commit()
-    await db.refresh(db_conversation)
+@router.post("/save-email", response_model=EmailMessageResponse)
+async def save_email_message(
+    email_data: EmailMessageCreate,
+    db: Session = Depends(get_db),
+    current_user: User = Depends(get_current_user)
+) -> EmailMessageResponse:
+    """
+    Save an email message to the conversation history
+    This endpoint is used by agents to record sent/received emails
+    """
+    logger.info("API: Saving email message", 
+               workflow_id=email_data.workflow_id,
+               direction=email_data.direction,
+               message_type=email_data.message_type)
     
-    return db_conversation
-
-
-@router.get("/{conversation_id}/messages", response_model=List[MessageSchema])
-async def get_conversation_messages(
-    conversation_id: int,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get all messages in a conversation"""
-    query = select(Message).where(Message.conversation_id == conversation_id).order_by(Message.created_at)
-    result = await db.execute(query)
-    messages = result.scalars().all()
-    
-    return messages
-
-
-@router.post("/{conversation_id}/messages", response_model=MessageSchema)
-async def create_message(
-    conversation_id: int,
-    message_data: MessageCreate,
-    db: AsyncSession = Depends(get_db),
-    current_user: User = Depends(get_current_active_user)
-):
-    """Add a message to a conversation"""
-    # Verify conversation exists
-    conv_query = select(Conversation).where(Conversation.id == conversation_id)
-    conv_result = await db.execute(conv_query)
-    conversation = conv_result.scalar_one_or_none()
-    
-    if not conversation:
-        raise HTTPException(status_code=404, detail="Conversation not found")
-    
-    # Create message
-    message_dict = message_data.dict()
-    message_dict["conversation_id"] = conversation_id
-    db_message = Message(**message_dict)
-    
-    db.add(db_message)
-    await db.commit()
-    await db.refresh(db_message)
-    
-    return db_message
+    try:
+        # Create the email message
+        db_message = EmailMessage(
+            **email_data.dict(),
+            user_id=current_user.id
+        )
+        
+        db.add(db_message)
+        db.commit()
+        db.refresh(db_message)
+        
+        logger.info("Email message saved successfully", 
+                   message_id=db_message.id,
+                   workflow_id=email_data.workflow_id)
+        
+        return EmailMessageResponse.from_orm(db_message)
+        
+    except Exception as e:
+        logger.error("Failed to save email message", 
+                    workflow_id=email_data.workflow_id, 
+                    error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to save email message: {str(e)}")

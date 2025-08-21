@@ -314,3 +314,43 @@ class PaginatedResponse(BaseModel):
     page: int
     per_page: int
     pages: int
+
+
+# Email Message schemas
+class EmailMessageBase(BaseModel):
+    workflow_id: str
+    sender_email: str
+    recipient_email: str
+    subject: str
+    body: str
+    direction: str  # "sent" or "received"
+    message_type: str  # "outreach", "follow_up", "calendar_invite", "reply", "overview_request"
+    timestamp: datetime
+    thread_id: Optional[str] = None
+
+
+class EmailMessageCreate(EmailMessageBase):
+    user_id: int
+    prospect_id: Optional[int] = None
+
+
+class EmailMessageResponse(EmailMessageBase):
+    id: int
+    user_id: int
+    prospect_id: Optional[int]
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+
+
+class ConversationResponse(BaseModel):
+    workflow_id: str
+    prospect_name: Optional[str] = None
+    prospect_email: str
+    prospect_company: Optional[str] = None
+    message_count: int
+    last_message: str
+    last_timestamp: datetime
+    status: str  # "active", "waiting", "completed"
+    messages: List[EmailMessageResponse]

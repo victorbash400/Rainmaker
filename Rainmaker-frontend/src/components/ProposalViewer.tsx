@@ -436,14 +436,50 @@ function ReviewModal({
                 </div>
               </div>
 
-              {/* PDF Viewer */}
+              {/* PDF Viewer with fallbacks */}
               <div className="border border-gray-200 rounded-lg overflow-hidden" style={{ height: '400px' }}>
                 {proposalData?.pdf_file_path ? (
-                  <iframe
-                    src={`/api/proposals/view/${proposalData.proposal_id}`}
-                    className="w-full h-full border-0"
-                    title="Proposal PDF"
-                  />
+                  <div className="w-full h-full relative">
+                    {/* Try iframe first */}
+                    <iframe
+                      src={`/api/v1/proposals/view/${proposalData.proposal_id}#toolbar=0&navpanes=0&scrollbar=0`}
+                      className="w-full h-full border-0"
+                      title="Proposal PDF"
+                      onError={(e) => {
+                        console.warn('PDF iframe failed to load, falling back to download link');
+                        e.currentTarget.style.display = 'none';
+                        const fallback = e.currentTarget.nextElementSibling as HTMLElement;
+                        if (fallback) fallback.style.display = 'flex';
+                      }}
+                    />
+                    {/* Fallback if iframe fails */}
+                    <div className="w-full h-full bg-gray-50 items-center justify-center" style={{ display: 'none' }}>
+                      <div className="text-center p-8">
+                        <FileText className="h-16 w-16 text-gray-400 mx-auto mb-4" />
+                        <h3 className="text-lg font-medium text-gray-900 mb-2">PDF Preview Unavailable</h3>
+                        <p className="text-gray-600 mb-6">Your browser cannot display PDF files inline.</p>
+                        <div className="space-y-3">
+                          <a
+                            href={`/api/v1/proposals/view/${proposalData.proposal_id}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center px-4 py-2 bg-black text-white rounded-lg hover:bg-gray-800 transition-colors"
+                          >
+                            <Eye className="w-4 h-4 mr-2" />
+                            Open in New Tab
+                          </a>
+                          <div className="text-sm text-gray-500">or</div>
+                          <a
+                            href={`/api/v1/proposals/download/${proposalData.proposal_id}`}
+                            className="inline-flex items-center px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors"
+                          >
+                            <Download className="w-4 h-4 mr-2" />
+                            Download PDF
+                          </a>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 ) : (
                   <div className="flex items-center justify-center h-full bg-gray-50">
                     <div className="text-center">

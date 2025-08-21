@@ -4,10 +4,11 @@ Handles browser lifecycle and basic operations
 """
 
 import base64
+import os
 from typing import Dict, Any, Optional
 from datetime import datetime
 import structlog
-from playwright.sync_api import sync_playwright, Browser, Page
+from playwright.sync_api import sync_playwright, Browser, Page, BrowserContext
 from concurrent.futures import ThreadPoolExecutor
 
 logger = structlog.get_logger(__name__)
@@ -27,10 +28,13 @@ class BrowserManager:
     
     def __init__(self, browser_viewer_callback=None):
         self.browser: Optional[Browser] = None
+        self.context: Optional[BrowserContext] = None
         self.playwright = None
         self._executor = ThreadPoolExecutor(max_workers=1)
         self.workflow_id: Optional[str] = None
         self.browser_viewer_callback = browser_viewer_callback
+        self.state_dir = os.path.join(os.getcwd(), "browser_states")
+        os.makedirs(self.state_dir, exist_ok=True)
     
     def _capture_browser_step(self, page: Page, step_name: str, details: str = ""):
         """Capture browser state and send to frontend via callback"""
@@ -98,6 +102,77 @@ class BrowserManager:
         except Exception as e:
             logger.warning("Failed to capture browser step", step=step_name, error=str(e))
     
+    def get_state_file_path(self, workflow_id: str, site_name: str = "default") -> str:
+        """Get the file path for storing browser state"""
+        return os.path.join(self.state_dir, f"{workflow_id}_{site_name}_state.json")
+    
+    def save_browser_state(self, workflow_id: str, site_name: str = "default"):
+        """Save current browser context state (cookies, localStorage, etc.)"""
+        if not self.context:
+            logger.warning("No context to save state from")
+            return
+            
+        try:
+            state_file = self.get_state_file_path(workflow_id, site_name)
+            state = self.context.storage_state(path=state_file)
+            logger.info("Browser state saved", state_file=state_file, cookies_count=len(state.get("cookies", [])))
+            return state_file
+        except Exception as e:
+            logger.error("Failed to save browser state", error=str(e))
+            return None
+    
+    def load_browser_state(self, workflow_id: str, site_name: str = "default") -> bool:
+        """Load browser context state if it exists"""
+        state_file = self.get_state_file_path(workflow_id, site_name)
+        
+        if not os.path.exists(state_file):
+            logger.info("No saved browser state found", state_file=state_file)
+            return False
+            
+        try:
+            if self.context:
+                logger.info("Loading existing browser state", state_file=state_file)
+                # Can't load state into existing context, need to create new one
+                return False
+            
+            logger.info("Browser state file found", state_file=state_file)
+            return True
+        except Exception as e:
+            logger.error("Failed to check browser state", error=str(e))
+            return False
+    
+    def create_persistent_context(self, workflow_id: str, site_name: str = "default", headless: bool = False):
+        """Create a persistent browser context that can save/load state"""
+        self._ensure_browser_sync(headless=headless)
+        
+        state_file = self.get_state_file_path(workflow_id, site_name)
+        
+        context_options = {
+            'viewport': {'width': 1280, 'height': 720},
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+        }
+        
+        # Load existing state if available
+        if os.path.exists(state_file):
+            try:
+                context_options['storage_state'] = state_file
+                logger.info("Creating context with saved state", state_file=state_file)
+            except Exception as e:
+                logger.warning("Failed to load state, creating fresh context", error=str(e))
+        else:
+            logger.info("Creating fresh browser context", workflow_id=workflow_id)
+        
+        self.context = self.browser.new_context(**context_options)
+        
+        if STEALTH_AVAILABLE:
+            try:
+                # Apply stealth to the context
+                logger.info("Persistent context created with stealth")
+            except Exception as stealth_error:
+                logger.warning("Stealth failed on context", error=str(stealth_error))
+        
+        return self.context
+    
     def _ensure_browser_sync(self, headless: bool = False):
         """Ensure browser is initialized using sync API"""
         try:
@@ -162,25 +237,46 @@ class BrowserManager:
                 logger.error("Cleanup failed", cleanup_error=str(cleanup_error))
             raise
     
-    def create_page(self, headless: bool = False) -> Page:
-        """Create a new page with stealth mode"""
-        self._ensure_browser_sync(headless=headless)
+    def create_page(self, headless: bool = False, workflow_id: str = None, site_name: str = "default") -> Page:
+        """Create a new page with stealth mode and optional persistence"""
+        if workflow_id and not self.context:
+            # Use persistent context if workflow_id provided
+            self.create_persistent_context(workflow_id, site_name, headless)
+            page = self.context.new_page()
+        elif self.context:
+            # Use existing context
+            page = self.context.new_page()
+        else:
+            # Fallback to regular page creation
+            self._ensure_browser_sync(headless=headless)
+            page = self.browser.new_page(viewport={'width': 1280, 'height': 720})
         
-        page = self.browser.new_page(viewport={'width': 1280, 'height': 720})
         if STEALTH_AVAILABLE:
             try:
                 stealth_sync(page)
-                logger.info("New page created with stealth (1280x720)")
+                logger.info("New page created with stealth", 
+                          persistent=bool(self.context),
+                          workflow_id=workflow_id)
             except Exception as stealth_error:
                 logger.warning("Stealth failed, continuing without it", error=str(stealth_error))
-                logger.info("New page created (no stealth, 1280x720)")
+                logger.info("New page created (no stealth)", 
+                          persistent=bool(self.context),
+                          workflow_id=workflow_id)
         else:
-            logger.info("New page created (stealth not available, 1280x720)")
+            logger.info("New page created (stealth not available)", 
+                      persistent=bool(self.context),
+                      workflow_id=workflow_id)
         
         return page
     
     def close(self):
         """Close browser and cleanup"""
+        if self.context:
+            try:
+                self.context.close()
+                self.context = None
+            except Exception as e:
+                logger.warning("Failed to close context", error=str(e))
         if self.browser:
             self.browser.close()
         if self.playwright:

@@ -24,7 +24,7 @@ async def login(
 ):
     """Authenticate user and return access token"""
     # Get user from database
-    result = await db.execute(select(User).where(User.email == login_data.email))
+    result = db.execute(select(User).where(User.email == login_data.email))
     user = result.scalar_one_or_none()
     
     if not user or not verify_password(login_data.password, user.hashed_password):

@@ -5,6 +5,7 @@ import {
   getCampaignPlans, 
   getCampaignExecutionStatus, 
   executeCampaignPlan,
+  resumeWorkflow,
   CampaignPlanSummary,
   ExecutionStatus
 } from '@/services/campaignPlanningService'
@@ -54,6 +55,21 @@ export default function Campaigns() {
       await loadCampaigns()
     } catch (error) {
       console.error('Failed to execute campaign:', error)
+    }
+  }
+
+  const handleResumeWorkflow = async (workflowId: string) => {
+    try {
+      const result = await resumeWorkflow(workflowId)
+      if (result.success) {
+        console.log('Workflow resumed:', result.message)
+        // Reload to get updated status
+        await loadCampaigns()
+      } else {
+        console.error('Failed to resume workflow:', result.message)
+      }
+    } catch (error) {
+      console.error('Failed to resume workflow:', error)
     }
   }
 
@@ -155,9 +171,10 @@ export default function Campaigns() {
                             status.status === 'ready' ? 'bg-gray-100 text-gray-800' :
                             status.status === 'executing' ? 'bg-yellow-100 text-yellow-800' :
                             status.status === 'completed' ? 'bg-green-100 text-green-800' :
+                            status.status === 'paused_for_manual_login' ? 'bg-orange-100 text-orange-800' :
                             'bg-red-100 text-red-800'
                           }`}>
-                            {status.status}
+                            {status.status === 'paused_for_manual_login' ? 'paused for login' : status.status}
                           </span>
                         )}
                       </div>
@@ -202,6 +219,22 @@ export default function Campaigns() {
                           </div>
                           <p className="text-xs text-gray-500 mt-1">
                             Current phase: {status.current_phase}
+                          </p>
+                        </div>
+                      )}
+
+                      {/* Login Pause Message */}
+                      {status && status.status === 'paused_for_manual_login' && (
+                        <div className="mb-4 p-3 bg-orange-50 border border-orange-200 rounded-lg">
+                          <div className="flex items-center space-x-2 mb-2">
+                            <Pause className="h-4 w-4 text-orange-600" />
+                            <span className="font-medium text-orange-800">Manual Login Required</span>
+                          </div>
+                          <p className="text-sm text-orange-700 mb-2">
+                            {status.message || status.login_info?.message || 'The workflow is paused waiting for manual login.'}
+                          </p>
+                          <p className="text-xs text-orange-600">
+                            Please log into the required site manually, then click "Resume" to continue.
                           </p>
                         </div>
                       )}
@@ -250,6 +283,15 @@ export default function Campaigns() {
                       {status?.status === 'executing' && (
                         <button className="p-2 hover:bg-yellow-50 text-yellow-600 rounded-lg transition-colors">
                           <Pause className="h-4 w-4" />
+                        </button>
+                      )}
+                      {status?.status === 'paused_for_manual_login' && (
+                        <button 
+                          onClick={() => handleResumeWorkflow(status.workflow_id)}
+                          className="px-3 py-1 bg-orange-600 hover:bg-orange-700 text-white text-sm rounded-lg transition-colors"
+                          title="Resume after login"
+                        >
+                          Resume
                         </button>
                       )}
                       <button className="p-2 hover:bg-gray-50 text-gray-600 rounded-lg transition-colors">

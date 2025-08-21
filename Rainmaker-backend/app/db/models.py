@@ -271,3 +271,31 @@ class CampaignPlan(Base):
     
     # Relationships
     user = relationship("User", back_populates="campaign_plans")
+
+
+class EmailMessage(Base):
+    __tablename__ = "email_messages"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    workflow_id = Column(String(255), index=True, nullable=False)
+    user_id = Column(Integer, ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+    prospect_id = Column(Integer, ForeignKey("prospects.id", ondelete="SET NULL"), nullable=True)
+    
+    # Email details
+    direction = Column(Enum("sent", "received", name="email_direction"), nullable=False)
+    sender_email = Column(String(255), nullable=False)
+    recipient_email = Column(String(255), nullable=False)
+    subject = Column(String(500), nullable=False)
+    body = Column(Text, nullable=False)
+    
+    # Classification
+    message_type = Column(Enum("outreach", "follow_up", "calendar_invite", "reply", "overview_request", name="message_type"), nullable=False)
+    
+    # Metadata
+    thread_id = Column(String(255), nullable=True)  # For email threading
+    timestamp = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
+    user = relationship("User")
+    prospect = relationship("Prospect")

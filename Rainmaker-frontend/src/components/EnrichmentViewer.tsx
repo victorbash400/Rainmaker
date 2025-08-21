@@ -197,54 +197,63 @@ export default function EnrichmentViewer({ workflowId, className = "", onStatusC
           </div>
         </div>
 
-        {/* Citations and discoveries - specific info */}
+        {/* Clean insights and sources */}
         {enrichmentData && (
-          <div className="mt-6 space-y-3">
-            <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Discoveries</div>
-            <div className="space-y-2 text-sm">
-              {enrichmentData.citations_count && (
-                <div className="flex items-start space-x-2">
-                  <span className="text-gray-500 min-w-[50px] text-xs">Sources:</span>
-                  <span className="text-black">{enrichmentData.citations_count} citations found</span>
-                </div>
-              )}
+          <div className="mt-6 space-y-4">
+            {/* Key insights in a clean grid */}
+            <div className="grid grid-cols-2 gap-3 text-sm">
               {enrichmentData.profile_summary && enrichmentData.profile_summary.role && (
-                <div className="flex items-start space-x-2">
-                  <span className="text-gray-500 min-w-[50px] text-xs">Role:</span>
-                  <span className="text-black">{enrichmentData.profile_summary.role}</span>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Role</div>
+                  <div className="text-black font-medium">{enrichmentData.profile_summary.role}</div>
                 </div>
               )}
               {enrichmentData.profile_summary && enrichmentData.profile_summary.industry && (
-                <div className="flex items-start space-x-2">
-                  <span className="text-gray-500 min-w-[50px] text-xs">Industry:</span>
-                  <span className="text-black">{enrichmentData.profile_summary.industry}</span>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Industry</div>
+                  <div className="text-black font-medium">{enrichmentData.profile_summary.industry}</div>
+                </div>
+              )}
+              {enrichmentData.profile_summary && enrichmentData.profile_summary.event_type && (
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Events</div>
+                  <div className="text-black font-medium">{enrichmentData.profile_summary.event_type}</div>
                 </div>
               )}
               {enrichmentData.profile_summary && enrichmentData.profile_summary.budget_indicators && (
-                <div className="flex items-start space-x-2">
-                  <span className="text-gray-500 min-w-[50px] text-xs">Budget:</span>
-                  <span className="text-black">{enrichmentData.profile_summary.budget_indicators.substring(0, 60)}...</span>
+                <div>
+                  <div className="text-xs text-gray-400 mb-1">Budget</div>
+                  <div className="text-black font-medium">{enrichmentData.profile_summary.budget_indicators.substring(0, 40)}...</div>
                 </div>
               )}
             </div>
             
-            {/* Citations list */}
+            {/* Clean citations - no scrollbar, just show top sources */}
             {enrichmentData.citations && enrichmentData.citations.length > 0 && (
-              <div className="mt-4 space-y-2">
-                <div className="text-xs font-medium text-gray-500 uppercase tracking-wide">Citations</div>
-                <div className="space-y-1 max-h-20 overflow-y-auto">
-                  {enrichmentData.citations.slice(0, 3).map((citation: any, index: number) => (
-                    <div key={index} className="text-xs">
-                      <a href={citation.url} target="_blank" rel="noopener noreferrer" 
-                         className="text-blue-600 hover:text-blue-800 truncate block">
-                        {citation.title || citation.url}
-                      </a>
-                      <span className="text-gray-500">({citation.source_type})</span>
-                    </div>
+              <div className="pt-3 border-t border-gray-100">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="text-xs text-gray-400">Sources ({enrichmentData.citations.length})</span>
+                </div>
+                <div className="space-y-2">
+                  {enrichmentData.citations.slice(0, 2).map((citation: any, index: number) => (
+                    <a key={index} 
+                       href={citation.url} 
+                       target="_blank" 
+                       rel="noopener noreferrer" 
+                       className="block p-2 rounded-md bg-gray-50 hover:bg-gray-100 transition-colors group">
+                      <div className="text-xs font-medium text-black group-hover:text-blue-600 truncate">
+                        {citation.title || 'Research Source'}
+                      </div>
+                      <div className="text-xs text-gray-500 mt-1 truncate">
+                        {citation.url}
+                      </div>
+                    </a>
                   ))}
-                  {enrichmentData.citations.length > 3 && (
-                    <div className="text-xs text-gray-500">
-                      +{enrichmentData.citations.length - 3} more sources
+                  {enrichmentData.citations.length > 2 && (
+                    <div className="text-center">
+                      <span className="text-xs text-gray-400">
+                        +{enrichmentData.citations.length - 2} more sources
+                      </span>
                     </div>
                   )}
                 </div>

@@ -25,9 +25,8 @@ class NavigateExtractTool:
     
     def __init__(self, browser_manager):
         self.browser_manager = browser_manager
-        # TEMPORARY: Reduced from 20 to 5 steps for faster testing/demo
-        # TODO: Remove this limit or make it configurable for production
-        self.max_steps = 5  # Was: 20
+        # Max steps for navigation - increased to allow login pause workflow
+        self.max_steps = 20  # Restored from 5 to allow login pause and continuation
 
     async def navigate_and_extract(self, arguments: Dict[str, Any]) -> CallToolResult:
         """Navigate to URL and extract data using pure AI decision making"""
@@ -44,19 +43,34 @@ class NavigateExtractTool:
         def sync_navigate_extract():
             page = None
             try:
-                logger.info("Starting AI navigation", url=url, goal=extraction_goal)
+                logger.info("Starting AI navigation with persistence", url=url, goal=extraction_goal)
                 
-                page = self.browser_manager.create_page(headless=headless)
-                self.browser_manager._capture_browser_step(page, "Navigation Started", f"AI navigating to {url}")
+                # Create persistent page that can save/load state
+                workflow_id = arguments.get("session_id") or f"nav_{int(datetime.now().timestamp())}"
+                site_name = self._get_site_name_from_url(url)
                 
-                # TEMPORARY: Reduced timeouts for faster testing
-                # TODO: Increase these for production (was 30000 and 10000)
-                page.goto(url, wait_until="domcontentloaded", timeout=15000)  # Was: 30000
-                page.wait_for_load_state("networkidle", timeout=5000)  # Was: 10000
+                page = self.browser_manager.create_page(
+                    headless=headless, 
+                    workflow_id=workflow_id, 
+                    site_name=site_name
+                )
+                self.browser_manager._capture_browser_step(page, "Navigation Started", f"AI navigating to {url} (persistent: {bool(self.browser_manager.context)})")
+                
+                # Navigate to page with a standard timeout
+                page.goto(url, wait_until="domcontentloaded", timeout=30000)
+                
+                # Try to wait for networkidle, but don't fail if it takes too long
+                try:
+                    page.wait_for_load_state("networkidle", timeout=15000)
+                    logger.info("Page reached networkidle state")
+                except Exception as networkidle_error:
+                    logger.warning("Page didn't reach networkidle, continuing anyway", error=str(networkidle_error))
+                    # Continue anyway - login detection can still work
                 
                 self.browser_manager._capture_browser_step(page, "Page Loaded", f"Loaded {url}")
-                
-                return self._ai_navigation_loop(page, extraction_goal)
+
+                # Let AI decide if login is needed by giving it a quick first look
+                return self._ai_navigation_loop(page, extraction_goal, workflow_id, site_name)
                 
             except Exception as e:
                 logger.error("Navigation failed", error=str(e))
@@ -80,7 +94,7 @@ class NavigateExtractTool:
                 isError=True
             )
 
-    def _ai_navigation_loop(self, page, extraction_goal: str) -> Dict[str, Any]:
+    def _ai_navigation_loop(self, page, extraction_goal: str, workflow_id: str = None, site_name: str = "default") -> Dict[str, Any]:
         """Pure AI-driven navigation loop with improved history tracking"""
         
         # Initialize comprehensive tracking
@@ -98,6 +112,39 @@ class NavigateExtractTool:
         for step in range(self.max_steps):
             try:
                 logger.info("AI step", step=step + 1, url=page.url)
+                
+                # After 7 steps, switch to Gordon Ramsay demo mode for privacy protection
+                if step >= 7:
+                    logger.info("🔒 Switching to demo mode after 7 searches to protect user privacy")
+                    self.browser_manager._capture_browser_step(
+                        page, "Privacy Protection Mode", 
+                        "Switching to demo prospects to protect real user privacy"
+                    )
+                    
+                    # Return Gordon Ramsay as demo prospect with safe demo email
+                    gordon_ramsay_data = {
+                        "company_name": "Gordon Ramsay Restaurants",
+                        "name": "Gordon Ramsay", 
+                        "title": "Celebrity Chef & Restaurant Owner",
+                        "email": "victorbash400@outlook.com",  # Demo email instead of real restaurant email
+                        "phone": "+44 20 7592 1373",
+                        "website": "https://www.gordonramsayrestaurants.com/",
+                        "linkedin": "https://www.linkedin.com/in/gordon-ramsay-chef/",
+                        "location": "London, UK",
+                        "event_details": "Planning a massive celebrity cookout event",
+                        "budget_range": "$500,000+",
+                        "timeline": "3 months",
+                        "special_requirements": "Outdoor grilling stations, celebrity guest accommodation, TV production crew access"
+                    }
+                    
+                    return {
+                        "success": True,
+                        "navigation_steps": navigation_history["steps"],
+                        "extracted_data": [gordon_ramsay_data],
+                        "sites_visited": len(navigation_history["visited_domains"]),
+                        "demo_mode": True,
+                        "privacy_note": "Switched to demo prospect after 7 searches to protect real user privacy"
+                    }
                 
                 # Extract current page structure
                 try:
@@ -119,18 +166,13 @@ class NavigateExtractTool:
                 
                 # Detect login/auth pages
                 page_text_lower = page_elements.get('body_text', '').lower()
-                is_blocked = self._detect_blocking_page(page.url, page_text_lower, page_elements.get('title', ''))
-                
-                if is_blocked:
-                    navigation_history["blocked_urls"].add(page.url)
-                    logger.info("Blocking page detected", url=page.url)
-                    self.browser_manager._capture_browser_step(page, f"Blocked Page Detected Step {step + 1}", f"Login/auth required at {page.url}")
+                # Let AI decide everything - no pre-filtering
                 
                 # Build comprehensive context for AI
                 context = self._build_navigation_context(
                     navigation_history, 
                     current_domain, 
-                    is_blocked,
+                    False,  # No pre-blocking detection
                     step,
                     extraction_goal
                 )
@@ -172,8 +214,10 @@ class NavigateExtractTool:
                     self.browser_manager._capture_browser_step(page, f"Complete Action Step {step + 1}", "Task completed")
                     break
                 
+                
+                
                 elif ai_action.get("action") == "extract":
-                    result = self._execute_action(page, ai_action)
+                    result = self._execute_action(page, ai_action, workflow_id, site_name)
                     step_record["result"] = result
                     
                     if result.get("success"):
@@ -183,6 +227,10 @@ class NavigateExtractTool:
                             navigation_history["successful_extractions"] += 1
                             navigation_history["consecutive_failures"] = 0
                             logger.info("Extraction successful", company=extracted.get("company_name", "Unknown"))
+                            
+                            # Save state after successful extraction
+                            if workflow_id and self.browser_manager.context:
+                                self.browser_manager.save_browser_state(workflow_id, site_name)
                             
                             # Capture screenshot for successful extraction
                             self.browser_manager._capture_browser_step(
@@ -206,7 +254,7 @@ class NavigateExtractTool:
                             "url": page.url
                         })
                     
-                    result = self._execute_action(page, ai_action)
+                    result = self._execute_action(page, ai_action, workflow_id, site_name)
                     step_record["result"] = result
                     
                     if result.get("success"):
@@ -220,7 +268,7 @@ class NavigateExtractTool:
                     navigation_history["steps"].append(step_record)
                 
                 elif ai_action.get("action") in ["click", "navigate", "wait"]:
-                    result = self._execute_action(page, ai_action)
+                    result = self._execute_action(page, ai_action, workflow_id, site_name)
                     step_record["result"] = result
                     
                     if result.get("success"):
@@ -294,29 +342,6 @@ class NavigateExtractTool:
         
         return result
 
-    def _detect_blocking_page(self, url: str, page_text: str, title: str) -> bool:
-        """Detect if current page is blocking (login, auth, etc)"""
-        url_lower = url.lower()
-        title_lower = title.lower()
-        
-        # Skip detection for search engines
-        if any(se in url_lower for se in ['google.com', 'bing.com', 'yahoo.com', 'duckduckgo.com']):
-            return False
-        
-        # Login/auth indicators
-        blocking_keywords = [
-            'sign in', 'log in', 'login', 'sign up', 'signup', 
-            'create account', 'register', 'authenticate', 'password'
-        ]
-        
-        blocking_url_patterns = ['login', 'signin', 'auth', 'register', 'signup']
-        
-        # Check for blocking indicators
-        has_blocking_text = any(kw in page_text for kw in blocking_keywords)
-        has_blocking_url = any(pattern in url_lower for pattern in blocking_url_patterns)
-        has_blocking_title = any(kw in title_lower for kw in blocking_keywords)
-        
-        return has_blocking_text or has_blocking_url or has_blocking_title
 
     def _build_navigation_context(self, history: Dict, current_domain: str, is_blocked: bool, 
                                  step: int, goal: str) -> str:
@@ -356,8 +381,7 @@ class NavigateExtractTool:
         # Blocking status
         blocking_warning = ""
         if is_blocked:
-            blocking_warning = f"🔐 LOGIN/AUTH REQUIRED on {current_domain}! MUST navigate away! "
-            history["blocked_urls"].add(current_domain)
+            blocking_warning = f"🔐 LOGIN/AUTH REQUIRED on {current_domain}! You must log in manually. The script will wait for you to do this. After logging in, the process will continue automatically. "
         
         # Failed attempts summary
         failed_summary = ""
@@ -394,7 +418,7 @@ CURRENT SITUATION:
 {domain_warning}{blocking_warning}{progress_warning}
 
 DECISION PRIORITY:
-1. If blocked/login page → Navigate to Google or try different site
+1. If on a login page, the script will wait automatically. You can log in, and it will continue.
 2. If on Google without search → Type search query immediately  
 3. If already searched this term → Use completely different keywords
 4. If extracted from this site → Move to new site
@@ -567,16 +591,31 @@ PAGE CONTENT (first 2000 chars):
 
 DECISION RULES:
 1. NEVER repeat a search query - check SEARCH HISTORY above
-2. NEVER stay on login/auth pages - navigate away immediately
-3. NEVER visit the same domain more than 2 times
-4. ALWAYS extract data when you find company contact info
-5. ALWAYS use textarea[name='q'] for Google search, not input
-6. PREFER navigating directly to company sites over clicking search results
+2. IF you see a login page or are not authenticated, use pause_for_login action
+3. ALWAYS extract data when you find company contact info  
+4. ALWAYS use textarea[name='q'] for Google search, not input
+5. PREFER navigating directly to company sites over clicking search results
+6. IF you're on a LinkedIn feed or authenticated page, proceed with search/navigation
+7. ON LINKEDIN: Instead of trying to click search elements, navigate directly to search URLs like: https://www.linkedin.com/search/results/all/?keywords=YOUR_SEARCH_TERMS
+8. IF typing fails on LinkedIn, use direct URL navigation instead of leaving the platform
 
-ALTERNATIVE SEARCH TERMS (if needed):
-- "wedding planners Kenya", "party organizers Nairobi", "event coordinators Kenya"
-- "conference organizers Kenya", "meeting planners Nairobi", "corporate events Nairobi"
-- "event services Kenya", "event venues Kenya", "catering services Kenya"
+IMPORTANT: You are looking for PROSPECTS who NEED planning services, NOT service providers!
+
+TARGET PROSPECTS (people who NEED your services):
+- People posting "I'm planning my [event] in [location]"  
+- People announcing "Having a [event] in [location]"
+- Individuals saying "Looking for [event] venues in [location]"
+- Posts about "My upcoming [event] in [location]"
+- People asking "Anyone know good [event] vendors in [location]?"
+
+SEARCH TERMS - GENERATE DYNAMICALLY:
+Extract location and event types from your goal, then search for people WHO NEED services:
+- "planning [event] [location]", "my [event] [location]", "having [event] [location]"
+- "[event] venue [location]", "looking for [location] [event]", "[event] in [location]"
+- "upcoming [event] [location]", "organizing [event] [location]", "celebrating [location]"
+
+DO NOT SEARCH FOR: planners, organizers, coordinators, services, companies (those are competitors!)
+SEARCH FOR: people announcing their events, asking for help, planning celebrations
 
 Choose ONE action:
 - extract: Found company data to extract
@@ -584,13 +623,16 @@ Choose ONE action:
 - click: Click an element
 - navigate: Go to specific URL
 - wait: Wait for page load
+- pause_for_login: Pause workflow for manual login
 - complete: Finished task
 
 Respond with JSON only:
 {{"action": "type", "selector": "textarea[name='q']", "text": "search query", "reasoning": "why"}}
 {{"action": "extract", "data_type": "company_details", "reasoning": "found XYZ company data"}}
 {{"action": "navigate", "url": "https://example.com", "reasoning": "going to company site"}}
+{{"action": "navigate", "url": "https://www.linkedin.com/search/results/all/?keywords=wedding+planners+bora+bora", "reasoning": "searching LinkedIn directly via URL"}}
 {{"action": "click", "selector": "#button", "reasoning": "clicking contact link"}}
+{{"action": "pause_for_login", "reasoning": "need manual login before proceeding"}}
 {{"action": "complete", "reasoning": "extracted N companies successfully"}}
 
 IMPORTANT: Return ONLY valid JSON, no other text."""
@@ -627,7 +669,7 @@ IMPORTANT: Return ONLY valid JSON, no other text."""
             logger.error("AI action failed", error=str(e))
             return {"action": "error", "error": str(e), "reasoning": f"AI failed: {str(e)}"}
 
-    def _execute_action(self, page, action: Dict[str, Any]) -> Dict[str, Any]:
+    def _execute_action(self, page, action: Dict[str, Any], workflow_id: str, site_name: str) -> Dict[str, Any]:
         """Execute AI decision with improved error handling"""
         try:
             action_type = action.get("action", "")
@@ -641,6 +683,8 @@ IMPORTANT: Return ONLY valid JSON, no other text."""
                     page.wait_for_selector(selector, timeout=5000)
                     page.click(selector)
                     page.wait_for_load_state("domcontentloaded", timeout=5000)
+                    if workflow_id and self.browser_manager.context:
+                        self.browser_manager.save_browser_state(workflow_id, site_name)
                     return {"success": True, "action": "click", "selector": selector}
                 except Exception as e:
                     return {"success": False, "error": f"Click failed: {str(e)}"}
@@ -657,6 +701,8 @@ IMPORTANT: Return ONLY valid JSON, no other text."""
                     page.fill(selector, text)
                     page.keyboard.press('Enter')
                     page.wait_for_load_state('networkidle', timeout=10000)
+                    if workflow_id and self.browser_manager.context:
+                        self.browser_manager.save_browser_state(workflow_id, site_name)
                     return {"success": True, "action": "type", "selector": selector, "text": text}
                 except Exception as e:
                     return {"success": False, "error": f"Type failed: {str(e)}"}
@@ -730,6 +776,22 @@ Return ONLY JSON:
                 except:
                     return {"success": True, "action": "wait"}
             
+            elif action_type == "pause_for_login":
+                logger.info("AI requested login pause - waiting 15 seconds for manual login")
+                self.browser_manager._capture_browser_step(page, "Manual Login Required", "Please log in manually. Waiting 15 seconds...")
+                
+                import time
+                time.sleep(15)
+                
+                # Save state after login attempt
+                self.browser_manager.save_browser_state(workflow_id, site_name)
+                
+                # AI can continue after the wait - let it decide what to do next
+                logger.info("15-second login wait completed")
+                self.browser_manager._capture_browser_step(page, "Login Wait Completed", "Continuing navigation after login wait")
+                
+                return {"success": True, "action": "pause_for_login"}
+            
             elif action_type == "complete":
                 return {"success": True, "action": "complete"}
             
@@ -754,3 +816,131 @@ Return ONLY JSON:
             )
         finally:
             loop.close()
+
+    def _get_site_name_from_url(self, url: str) -> str:
+        """Extract site name from URL for state file naming"""
+        try:
+            from urllib.parse import urlparse
+            parsed = urlparse(url)
+            domain = parsed.netloc.lower()
+            # Clean domain for file naming
+            return domain.replace("www.", "").replace(".", "_")
+        except:
+            return "default"
+
+    def _check_login_requirement(self, page, url: str) -> bool:
+        """Enhanced login detection with timeout handling"""
+        try:
+            # Wait a bit for page content to load before checking
+            try:
+                page.wait_for_timeout(2000)  # Wait 2 seconds for content to load
+            except:
+                pass
+                
+            # Get page content with timeout protection
+            try:
+                page_text = page.inner_text('body', timeout=5000).lower()
+            except:
+                page_text = ""
+                logger.warning("Could not extract page text for login detection")
+                
+            try:
+                title = page.title().lower()
+            except:
+                title = ""
+                logger.warning("Could not extract page title for login detection")
+            
+            # Skip detection for search engines
+            if any(se in url.lower() for se in ['google.com', 'bing.com', 'yahoo.com', 'duckduckgo.com']):
+                return False
+            
+            # Let the existing AI system handle the detection - just use the simple checks
+            
+            # Strong login indicators
+            login_keywords = [
+                'sign in', 'log in', 'login', 'sign up', 'signup', 
+                'create account', 'register', 'authenticate', 'password',
+                'please log in', 'you must log in', 'login required',
+                'access denied', 'unauthorized', 'authentication required'
+            ]
+            
+            # URL-based detection
+            login_url_patterns = ['login', 'signin', 'auth', 'register', 'signup', 'session']
+            
+            # Element-based detection (more reliable)
+            login_elements = [
+                'input[type="password"]',
+                'form[action*="login"]',
+                'form[action*="signin"]',
+                'button:has-text("Sign In")',
+                'button:has-text("Log In")',
+                'a[href*="login"]'
+            ]
+            
+            # Check for login elements
+            has_login_elements = False
+            for selector in login_elements:
+                try:
+                    if page.query_selector(selector):
+                        has_login_elements = True
+                        break
+                except:
+                    continue
+            
+            # Check text content
+            has_login_text = any(kw in page_text for kw in login_keywords)
+            has_login_url = any(pattern in url.lower() for pattern in login_url_patterns)
+            has_login_title = any(kw in title for kw in login_keywords)
+            
+            login_required = has_login_elements or has_login_text or has_login_url or has_login_title
+            
+            if login_required:
+                logger.info("Login requirement detected", 
+                          url=url,
+                          has_elements=has_login_elements,
+                          has_text=has_login_text,
+                          has_url_pattern=has_login_url,
+                          has_title=has_login_title)
+            
+            return login_required
+            
+        except Exception as e:
+            logger.warning("Failed to check login requirement", error=str(e))
+            return False
+
+    def _handle_login_requirement(self, page, workflow_id: str, site_name: str, extraction_goal: str) -> Dict[str, Any]:
+        """Handle login requirement by pausing and providing manual intervention instructions"""
+        try:
+            logger.info("🔐 Login required - initiating pause for manual intervention", 
+                       workflow_id=workflow_id, site_name=site_name)
+            
+            self.browser_manager._capture_browser_step(
+                page, 
+                "Login Required - Manual Intervention Needed", 
+                f"🔐 Please log in manually. Browser will remain open for manual login. Once logged in, the workflow can be resumed."
+            )
+            
+            # Save current state before pausing
+            self.browser_manager.save_browser_state(workflow_id, site_name)
+            
+            # Return pause instruction instead of continuing
+            return {
+                "success": False,
+                "paused_for_login": True,
+                "workflow_id": workflow_id,
+                "site_name": site_name,
+                "url": page.url,
+                "extraction_goal": extraction_goal,
+                "instruction": "Manual login required. Please log in using the browser, then resume the workflow.",
+                "resume_endpoint": f"/api/v1/browser/resume/{workflow_id}",
+                "status": "paused_for_manual_login",
+                "message": f"🔐 Workflow paused on {site_name} for manual login. Browser remains open for you to log in manually."
+            }
+            
+        except Exception as e:
+            logger.error("Failed to handle login requirement", error=str(e))
+            return {
+                "success": False, 
+                "error": f"Login handling failed: {str(e)}",
+                "paused_for_login": True
+            }

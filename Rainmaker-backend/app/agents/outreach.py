@@ -13,7 +13,14 @@ class OutreachAgent:
 
     async def execute_outreach(self, state: RainmakerState) -> RainmakerState:
         """Executes the outreach process for a given prospect."""
-        logger.info("Starting outreach execution", workflow_id=state.get("workflow_id"))
+        workflow_id = state.get("workflow_id")
+        prospect_name = state.get("prospect_data", {}).name if state.get("prospect_data") else "Unknown"
+        
+        print(f"🚀 OUTREACH AGENT: Starting outreach execution for {prospect_name}")
+        print(f"   Workflow ID: {workflow_id}")
+        print(f"   Call stack info: This is the REAL outreach agent, not UI simulation")
+        
+        logger.info("Starting outreach execution", workflow_id=workflow_id, prospect_name=prospect_name)
 
         enrichment_data = state.get("enrichment_data")
         prospect_data = state.get("prospect_data")
@@ -29,12 +36,19 @@ class OutreachAgent:
             # 2. Send the email via EmailMCP
             # For the demo, we'll send to the prospect's real email address.
             # Ensure your .env is configured to send from one address and receive at another.
+            print(f"📧 REAL EMAIL SENDING: To {prospect_data.email}")
+            print(f"   Subject: {draft['subject']}")
+            print(f"   This is NOT a UI simulation - actual email will be sent!")
+            
             logger.info(f"Sending email to {prospect_data.email}...")
             result = email_mcp.send_email(
                 to=prospect_data.email,
                 subject=draft["subject"],
                 body=draft["body"]
             )
+            
+            print(f"✅ REAL EMAIL SENT: Result = {result}")
+            logger.info(f"Email sent successfully to {prospect_data.email}")
 
             # 3. Update state with campaign info as dict for better serialization
             from datetime import datetime

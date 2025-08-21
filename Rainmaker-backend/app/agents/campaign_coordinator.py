@@ -281,7 +281,15 @@ class CampaignCoordinatorAgent:
             "stage_durations": {},
             "total_duration": None,
             "api_calls_made": {},
-            "rate_limit_status": {}
+            "rate_limit_status": {},
+            # Add campaign plan data to the state with multiple field names for compatibility
+            "event_types_focus": plan.target_profile.event_types,
+            "event_types": plan.target_profile.event_types,
+            "event_types_to_target": plan.target_profile.event_types,
+            "geographic_focus": plan.target_profile.geographic_regions,
+            "geographic_regions": plan.target_profile.geographic_regions,
+            "geographic_location_to_search": plan.target_profile.geographic_regions,
+            "target_profile": asdict(plan.target_profile)
         }
         
         # Store campaign-specific data separately in execution_state (not in workflow state)
@@ -305,23 +313,48 @@ class CampaignCoordinatorAgent:
             execution_state["active_agent"] = "none"
             execution_state["last_updated"] = datetime.now()
             
+            # Check if workflow was paused (centralized pause state)
+            if hunter_state.get("current_stage") == WorkflowStage.PAUSED:
+                login_pause_info = hunter_state.get("login_pause_info", {})
+                logger.info("🔐 Hunter paused for manual login - workflow will wait", 
+                           plan_id=plan.plan_id,
+                           resume_endpoint=login_pause_info.get("resume_endpoint"))
+                
+                execution_state["current_phase"] = "paused_for_login"
+                execution_state["status"] = "paused_for_manual_login"
+                execution_state["login_info"] = login_pause_info
+                execution_state["message"] = login_pause_info.get("message", "Manual login required")
+                self._broadcast_status_update(plan.plan_id, execution_state, force=True)
+                
+                return {
+                    "plan_id": plan.plan_id,
+                    "status": "paused_for_manual_login",
+                    "current_phase": "paused_for_login", 
+                    "message": login_pause_info.get("message"),
+                    "resume_endpoint": login_pause_info.get("resume_endpoint"),
+                    "instruction": "Please log in manually using the browser, then call the resume endpoint to continue."
+                }
+            
             # Get prospects found count from hunter results
             hunter_results = hunter_state.get("hunter_results")
             prospects_found = hunter_results.prospects_found if hunter_results else 0
             execution_state["metrics"]["prospects_discovered"] = prospects_found
             self._broadcast_status_update(plan.plan_id, execution_state)
             
-            # Close any browser viewers before starting enrichment
-            try:
-                from app.api.v1.browser_viewer import cleanup_workflow_connections
-                workflow_id = execution_state.get("workflow_id")
-                if workflow_id:
-                    cleanup_workflow_connections(workflow_id)
-                    logger.info("🔧 Browser viewer connections cleaned up before enrichment")
-                else:
-                    logger.warning("No workflow_id found in execution state")
-            except Exception as e:
-                logger.warning("Failed to cleanup browser viewer connections", error=str(e))
+            # Close any browser viewers before starting enrichment (ONLY if not paused)
+            if hunter_state.get("current_stage") != WorkflowStage.PAUSED:
+                try:
+                    from app.api.v1.browser_viewer import cleanup_workflow_connections
+                    workflow_id = execution_state.get("workflow_id")
+                    if workflow_id:
+                        cleanup_workflow_connections(workflow_id)
+                        logger.info("🔧 Browser viewer connections cleaned up before enrichment")
+                    else:
+                        logger.warning("No workflow_id found in execution state")
+                except Exception as e:
+                    logger.warning("Failed to cleanup browser viewer connections", error=str(e))
+            else:
+                logger.info("🔐 Skipping browser cleanup - workflow is PAUSED")
             
             # Phase 2: Enrichment - ALWAYS run enrichment (demo mode)
             execution_state["current_phase"] = "enriching"
@@ -372,19 +405,17 @@ class CampaignCoordinatorAgent:
                         
                         execution_state["completed_agents"].append(f"enricher_{prospect_id}")
             else:
-                # No prospects found - run demo enrichment anyway
-                logger.info("🧠 No prospects found, running demo enrichment to test the flow")
+                # No prospects found - run demo enrichment with Gordon Ramsay
+                logger.info("🧠 No prospects found from hunter, using Gordon Ramsay demo for enrichment")
                 
-                # Create demo prospect data with real person
-                import os
-                test_email = os.getenv("TEST_RECIPIENT_EMAIL", "steve@wittgoff.com")
+                # Create Gordon Ramsay demo prospect data with safe demo email
                 demo_prospect = ProspectData(
-                    name="Steve Wittgoff",
-                    email=test_email,  # Use test email for demo
-                    company_name="Wittgoff Real Estate",
-                    location="Chicago, IL",
+                    name="Gordon Ramsay",
+                    email="victorbash400@outlook.com",  # Demo email instead of real Gordon Ramsay email
+                    company_name="Gordon Ramsay Restaurants",
+                    location="London, UK",
                     prospect_type="individual",
-                    source="demo_enrichment"
+                    source="demo_gordon_ramsay"
                 )
                 
                 # Create enrichment state with demo data

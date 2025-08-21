@@ -226,7 +226,6 @@ export default function Dashboard() {
               <div className="absolute top-0 left-0 right-0 z-10 bg-gradient-to-b from-white via-white to-transparent px-8 py-3">
                 <div className="max-w-2xl mx-auto flex justify-between items-center">
                   <div className="flex items-center space-x-2">
-                    <img src="/favicon.svg" alt="Rainmaker Logo" className="w-5 h-5" />
                     <h1 className="text-base font-medium text-gray-900">Rainmaker</h1>
                   </div>
                   <button

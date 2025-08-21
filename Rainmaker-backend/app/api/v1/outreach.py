@@ -216,8 +216,8 @@ async def get_outreach_status(
         campaigns = state.get("outreach_campaigns", [])
         latest_campaign = campaigns[-1] if campaigns else None
         
-        # Get conversation summary if available
-        conversation_summary = state.get("conversation_summary", {})
+        # Get conversation summary if available (ensure it's not None)
+        conversation_summary = state.get("conversation_summary") or {}
         
         # Handle both dict and object formats safely
         campaign_status = None
@@ -342,11 +342,13 @@ async def check_overview_reply(
                 detail="Workflow not found"
             )
         
-        # Verify workflow is in AWAITING_OVERVIEW stage
-        if state.get("current_stage") != WorkflowStage.AWAITING_OVERVIEW:
+        # Verify workflow is in AWAITING_OVERVIEW or AWAITING_OVERVIEW_REPLY stage
+        current_stage = state.get("current_stage")
+        allowed_stages = [WorkflowStage.AWAITING_OVERVIEW, "awaiting_overview_reply"]
+        if current_stage not in allowed_stages:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=f"Workflow not awaiting overview reply. Current stage: {state.get('current_stage')}"
+                detail=f"Workflow not awaiting overview reply. Current stage: {current_stage}"
             )
         
         # Get prospect email from state

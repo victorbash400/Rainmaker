@@ -56,26 +56,32 @@ class EnrichmentAgent:
     def _send_enrichment_update(self, workflow_id: str, step: str, reasoning: str, 
                                status: str = "active", data: Optional[Dict[str, Any]] = None):
         """Send real-time enrichment update to frontend"""
+        update_data = {
+            "type": "enrichment_update",
+            "workflow_id": workflow_id,
+            "step": step,
+            "reasoning": reasoning,
+            "status": status,
+            "timestamp": datetime.now().isoformat()
+        }
+        
+        if data:
+            update_data["data"] = data
+        
+        # Always print for debugging
+        print(f"🔄 ENRICHMENT UPDATE: {step} | {reasoning[:100]}...")
+        
         if enrichment_viewer_callback:
             try:
-                update_data = {
-                    "type": "enrichment_update",
-                    "workflow_id": workflow_id,
-                    "step": step,
-                    "reasoning": reasoning,
-                    "status": status,
-                    "timestamp": datetime.now().isoformat()
-                }
-                
-                if data:
-                    update_data["data"] = data
-                
                 enrichment_viewer_callback(update_data)
+                print(f"✅ UPDATE SENT TO FRONTEND via callback for workflow: {workflow_id}")
                 logger.debug("✅ Enrichment update sent", step=step, workflow_id=workflow_id)
             except Exception as e:
+                print(f"❌ CALLBACK FAILED: {str(e)}")
                 logger.warning("❌ Failed to send enrichment update", error=str(e))
         else:
-            logger.debug("⚠️ No enrichment viewer callback set - updates not being sent to frontend")
+            print("⚠️  NO CALLBACK SET - Updates not reaching frontend!")
+            logger.warning("⚠️ No enrichment viewer callback set - updates not being sent to frontend")
     
     async def enrich_prospect(self, state: RainmakerState) -> RainmakerState:
         """
@@ -120,15 +126,20 @@ class EnrichmentAgent:
                 }
             )
             
-            # Send detailed results
+            # Send detailed results with actual citations
             person_results = person_data.get("results", [])
-            citations_found = len(person_data.get("citations", []))
+            person_citations = person_data.get("citations", [])
+            citations_found = len(person_citations)
             self._send_enrichment_update(
                 workflow_id=workflow_id,
                 step="Person Research Complete",
                 reasoning=f"✅ Found {citations_found} sources about {prospect_data.name}. Discovered: {person_results[:2] if person_results else 'Limited public information'}",
                 status="complete",
-                data={"citations_count": citations_found, "results_preview": person_results[:2]}
+                data={
+                    "citations_count": citations_found, 
+                    "citations": person_citations,  # Send actual citations array
+                    "results_preview": person_results[:2]
+                }
             )
             
             # Step 2: Research company (if applicable)
@@ -151,15 +162,20 @@ class EnrichmentAgent:
                     {"location": prospect_data.location}
                 )
                 
-                # Send detailed company results
+                # Send detailed company results with actual citations
                 company_results = company_data.get("results", [])
-                company_citations = len(company_data.get("citations", []))
+                company_citations_array = company_data.get("citations", [])
+                company_citations_count = len(company_citations_array)
                 self._send_enrichment_update(
                     workflow_id=workflow_id,
                     step="Company Analysis Complete",
-                    reasoning=f"✅ Analyzed {prospect_data.company_name}: Found {company_citations} sources. Key insights: {company_results[:1] if company_results else 'Basic company information'}",
+                    reasoning=f"✅ Analyzed {prospect_data.company_name}: Found {company_citations_count} sources. Key insights: {company_results[:1] if company_results else 'Basic company information'}",
                     status="complete",
-                    data={"company_citations": company_citations, "company_insights": company_results[:1]}
+                    data={
+                        "company_citations": company_citations_count, 
+                        "citations": company_citations_array,  # Send actual citations
+                        "company_insights": company_results[:1]
+                    }
                 )
             
             # Step 3: Research event context
@@ -181,15 +197,20 @@ class EnrichmentAgent:
                 "location": prospect_data.location
             })
             
-            # Send detailed event context results
+            # Send detailed event context results with actual citations
             event_results = event_data.get("results", [])
-            event_citations = len(event_data.get("citations", []))
+            event_citations_array = event_data.get("citations", [])
+            event_citations_count = len(event_citations_array)
             self._send_enrichment_update(
                 workflow_id=workflow_id,
                 step="Event Context Complete",
-                reasoning=f"✅ Event research complete: {event_citations} sources analyzed. Event signals: {event_results[:1] if event_results else 'No specific event planning activity detected'}",
+                reasoning=f"✅ Event research complete: {event_citations_count} sources analyzed. Event signals: {event_results[:1] if event_results else 'No specific event planning activity detected'}",
                 status="complete",
-                data={"event_citations": event_citations, "event_signals": event_results[:1]}
+                data={
+                    "event_citations": event_citations_count, 
+                    "citations": event_citations_array,  # Send actual citations
+                    "event_signals": event_results[:1]
+                }
             )
             
             # Step 4: Analyze with Gemini

@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     GOOGLE_CALENDAR_CREDENTIALS: Optional[SecretStr] = None
     LINKEDIN_API_KEY: Optional[SecretStr] = None
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
+    GOOGLE_SERVICE_ACCOUNT_FILE: Optional[str] = None
     GOOGLE_CLOUD_PROJECT: Optional[str] = None
     GOOGLE_CLOUD_LOCATION: Optional[str] = None
     

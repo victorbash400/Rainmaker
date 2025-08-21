@@ -2,7 +2,6 @@ import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { 
   Mail, 
-  Send, 
   Clock, 
   CheckCircle, 
   Search, 
@@ -113,16 +112,21 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
 
   const simulateOutreachFlow = async () => {
     try {
+      console.log('🎭 UI SIMULATION: Starting outreach flow animation (NOT real email)');
+      
       // Stage 1: Analyzing
       setStage('analyzing');
+      console.log('🎭 UI SIMULATION: Showing analyzing stage');
       await delay(2000);
 
       // Stage 2: Drafting
       setStage('drafting');
+      console.log('🎭 UI SIMULATION: Showing drafting stage');
       await delay(3000);
 
       // Stage 3: Sending
       setStage('sending');
+      console.log('🎭 UI SIMULATION: Showing sending stage (visual only)');
       await delay(2000);
 
       // Try to check outreach status, but handle errors gracefully
@@ -323,11 +327,11 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
       case 'drafting':
         return <Mail className="w-6 h-6 animate-pulse" />;
       case 'sending':
-        return <Send className="w-6 h-6 animate-pulse" />;
+        return <Mail className="w-6 h-6 animate-pulse" />;
       case 'awaiting_reply':
         return <Clock className="w-6 h-6" />;
       case 'checking':
-        return <Loader2 className="w-6 h-6 animate-spin" />;
+        return <Search className="w-6 h-6 animate-pulse" />;
       case 'reply_found':
         return <MessageSquare className="w-6 h-6" />;
       case 'overview_requesting':
@@ -335,7 +339,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
       case 'awaiting_overview':
         return <Clock className="w-6 h-6" />;
       case 'checking_overview':
-        return <Loader2 className="w-6 h-6 animate-spin" />;
+        return <Search className="w-6 h-6 animate-pulse" />;
       case 'overview_received':
         return <MessageSquare className="w-6 h-6" />;
       case 'complete':
@@ -540,7 +544,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                 transition={{ delay: 1.2 }}
               >
                 {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Search className="w-4 h-4 animate-pulse" />
                 ) : (
                   <Search className="w-4 h-4" />
                 )}
@@ -565,7 +569,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
             animate={{ opacity: 1 }}
             className="text-center py-8"
           >
-            <Loader2 className="w-6 h-6 animate-spin text-gray-600 mx-auto mb-3" />
+            <Search className="w-6 h-6 animate-pulse text-gray-600 mx-auto mb-3" />
             <p className="text-sm text-gray-500">Scanning inbox and analyzing replies...</p>
           </motion.div>
         )}
@@ -724,7 +728,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                 transition={{ delay: 1.4 }}
               >
                 {loading ? (
-                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <Search className="w-4 h-4 animate-pulse" />
                 ) : (
                   <Search className="w-4 h-4" />
                 )}
@@ -752,13 +756,8 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
             {/* Analyzing Animation */}
             <div className="flex justify-center">
               <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center">
-                {/* Search icon with animation */}
-                <motion.div
-                  animate={{ rotate: 360 }}
-                  transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
-                >
-                  <Search className="w-8 h-8 text-black" />
-                </motion.div>
+                {/* Search icon with gentle pulse */}
+                <Search className="w-8 h-8 text-black animate-pulse" />
               </div>
             </div>
 

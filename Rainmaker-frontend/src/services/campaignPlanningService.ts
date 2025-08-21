@@ -56,7 +56,7 @@ export interface CampaignPlanSummary {
 export interface ExecutionStatus {
   plan_id: string
   workflow_id: string
-  status: 'ready' | 'executing' | 'completed' | 'failed'
+  status: 'ready' | 'executing' | 'completed' | 'failed' | 'paused_for_manual_login'
   progress_percentage: number
   current_phase: string
   metrics: {
@@ -66,6 +66,15 @@ export interface ExecutionStatus {
     proposals_generated: number
   }
   last_updated: string
+  message?: string
+  resume_endpoint?: string
+  login_info?: {
+    paused_for_login: boolean
+    workflow_id: string
+    site_name: string
+    resume_endpoint: string
+    message: string
+  }
 }
 
 export interface PlanningTemplates {
@@ -172,6 +181,13 @@ export const executeCampaignPlan = async (planId: string) => {
  */
 export const getCampaignExecutionStatus = async (planId: string): Promise<ExecutionStatus> => {
   return apiGet<ExecutionStatus>(`/api/v1/campaign-planning/plans/${planId}/status`)
+}
+
+/**
+ * Resume a paused workflow after manual login
+ */
+export const resumeWorkflow = async (workflowId: string): Promise<{ success: boolean; message: string }> => {
+  return apiPost<{ success: boolean; message: string }>(`/api/v1/browser/resume/${workflowId}`, {})
 }
 
 // =============================================================================

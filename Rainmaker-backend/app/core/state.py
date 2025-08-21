@@ -31,6 +31,7 @@ class WorkflowStage(str, Enum):
     COMPLETED = "completed"
     FAILED = "failed"
     PENDING_APPROVAL = "pending_approval"
+    PAUSED = "paused"
 
 
 class AgentError(BaseModel):
@@ -200,6 +201,11 @@ class RainmakerState(TypedDict, total=False):
     api_calls_made: Dict[str, int]  # track API usage per service
     rate_limit_status: Dict[str, Dict[str, Any]]
 
+    # Campaign planning data
+    event_types_focus: List[str]
+    geographic_focus: List[str]
+    target_profile: Dict[str, Any]
+
 
 class StateValidationError(Exception):
     """Raised when state validation fails"""
@@ -328,7 +334,8 @@ class StateManager:
             'max_retries', 'human_intervention_needed', 'approval_pending',
             'assigned_human', 'approval_requests', 'manual_overrides',
             'next_agent', 'skip_stages', 'priority', 'stage_durations',
-            'total_duration', 'api_calls_made', 'rate_limit_status'
+            'total_duration', 'api_calls_made', 'rate_limit_status',
+            'event_types_focus', 'geographic_focus', 'target_profile'
         }
         
         # Create clean state with only valid fields
@@ -518,7 +525,8 @@ class StateManager:
                 'max_retries', 'human_intervention_needed', 'approval_pending',
                 'assigned_human', 'approval_requests', 'manual_overrides',
                 'next_agent', 'skip_stages', 'priority', 'stage_durations',
-                'total_duration', 'api_calls_made', 'rate_limit_status'
+                'total_duration', 'api_calls_made', 'rate_limit_status',
+                'event_types_focus', 'geographic_focus', 'target_profile'
             }
             
             # Create filtered data with only valid RainmakerState fields

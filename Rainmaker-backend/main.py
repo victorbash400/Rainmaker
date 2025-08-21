@@ -43,14 +43,12 @@ async def lifespan(app: FastAPI):
     
     # Setup enrichment viewer
     try:
-        from app.api.v1.enrichment_viewer import setup_enrichment_viewer
-        from app.agents.enrichment import set_enrichment_viewer_callback
         from app.api.v1.enrichment_viewer import enrichment_viewer_callback
+        from app.agents.enrichment import set_enrichment_viewer_callback
         
-        print("🔧 Setting up enrichment viewer callbacks...")
-        setup_enrichment_viewer()
+        print("🔧 Setting up enrichment viewer callback...")
         set_enrichment_viewer_callback(enrichment_viewer_callback)
-        print("✅ Enrichment viewer callbacks configured")
+        print("✅ Enrichment viewer callback configured - real-time updates enabled")
     except Exception as e:
         print(f"❌ Failed to setup enrichment viewer: {str(e)}")
         import traceback

@@ -29,27 +29,62 @@ class ProspectHunterAgent:
     def __init__(self):
         pass
         
-    async def hunt_prospects(self, state: RainmakerState) -> RainmakerState:
+    async def hunt_prospects(self, state: RainmakerState, session_id: str = None) -> RainmakerState:
         """Hunt for prospects using enhanced AI navigation"""
         workflow_id = state.get("workflow_id")
         logger.info("Starting prospect hunting with AI navigation", workflow_id=workflow_id)
         
         try:
-            # Extract campaign targeting information
-            event_types = state.get("event_types_focus", ["events"])
-            location = state.get("geographic_focus", [""])
+            # Extract campaign targeting information from planner data structure
+            # Try multiple field names to handle different data structures from planner
+            event_types = (
+                state.get("event_types_focus", []) or 
+                state.get("event_types", []) or 
+                state.get("event_types_to_target", []) or
+                ["events"]  # fallback
+            )
+            
+            # Extract geographic information from various possible fields
+            geographic_focus = state.get("geographic_focus", [])
+            geographic_location = state.get("geographic_location_to_search", [])
+            geographic_regions = state.get("geographic_regions", [])
+            
+            # Combine all location data
+            location = []
+            if isinstance(geographic_focus, list):
+                location.extend(geographic_focus)
+            elif geographic_focus:
+                location.append(geographic_focus)
+                
+            if isinstance(geographic_location, list):
+                location.extend(geographic_location)
+            elif geographic_location:
+                location.append(geographic_location)
+                
+            if isinstance(geographic_regions, list):
+                location.extend(geographic_regions)
+            elif geographic_regions:
+                location.append(geographic_regions)
+            
+            # Remove duplicates and empty values
+            location = list(set([loc for loc in location if loc and loc.strip()]))
+            if not location:
+                location = [""]  # fallback
+            
+            # Extract target profile information
             target_profile = state.get("target_profile", {})
             
-            logger.info("Hunting prospects", 
+            logger.info("Hunting prospects with planner data", 
                        event_types=event_types, 
                        location=location,
-                       target_profile=target_profile)
+                       target_profile=target_profile,
+                       state_keys=list(state.keys()))
             
             # Build search goal from campaign parameters
             search_goal = self._build_search_goal(event_types, location, target_profile)
             
             # Use enhanced AI navigation to find prospects
-            prospects_data = await self._hunt_with_ai_navigation(workflow_id, search_goal)
+            prospects_data = await self._hunt_with_ai_navigation(workflow_id, search_goal, session_id)
             
             # Process and structure the results
             prospects_found = len(prospects_data.get("contacts", []))
@@ -80,25 +115,29 @@ class ProspectHunterAgent:
                        success=prospects_found > 0,
                        prospects_found=prospects_found)
             
-            # Close browser session to free up resources
-            try:
-                # Use a safer approach for closing the browser
-                if hasattr(enhanced_browser_mcp, 'browser_manager') and enhanced_browser_mcp.browser_manager:
-                    try:
-                        # Try to close gracefully first
-                        enhanced_browser_mcp.browser_manager.close()
-                        logger.info("Browser manager closed after prospect hunting")
-                    except Exception as close_error:
-                        logger.warning("Browser manager close failed, trying enhanced_browser_mcp.close()", error=str(close_error))
-                        try:
-                            enhanced_browser_mcp.close()
-                            logger.info("Enhanced browser MCP closed after prospect hunting")
-                        except Exception as e2:
-                            logger.warning("Failed to close browser session", error=str(e2))
-                else:
-                    logger.info("No browser session to close")
-            except Exception as e:
-                logger.warning("Failed to close browser session", error=str(e))
+            # Check if workflow was paused for manual login - if so, DON'T close browser
+            paused_for_login = prospects_data.get("paused_for_login", False)
+            
+            if paused_for_login:
+                logger.info("🔐 Browser session kept open for manual login - NOT closing browser", 
+                           workflow_id=workflow_id,
+                           resume_endpoint=prospects_data.get("resume_endpoint"))
+                # Set workflow to PAUSED state
+                from app.core.state import WorkflowStage
+                state["current_stage"] = WorkflowStage.PAUSED
+                state["login_pause_info"] = {
+                    "paused_for_login": True,
+                    "workflow_id": prospects_data.get("workflow_id"),
+                    "site_name": prospects_data.get("site_name"),
+                    "resume_endpoint": prospects_data.get("resume_endpoint"),
+                    "message": prospects_data.get("message")
+                }
+            else:
+                # Browser is intentionally not closed here if the workflow is not paused.
+                # The browser context is managed by the orchestrator/workflow runner,
+                # which will handle the cleanup after the entire workflow is complete.
+                # This prevents premature closing of the browser if other agents need it.
+                logger.info("Browser session intentionally left open for workflow completion.")
             
             return state
             
@@ -113,18 +152,18 @@ class ProspectHunterAgent:
     
     def _build_search_goal(self, event_types: List[str], location: List[str], target_profile: Dict[str, Any]) -> str:
         """Build AI search goal from campaign parameters"""
-        # Extract target details
+        # Extract target details from target_profile
         industries = target_profile.get("industries", [])
         company_sizes = target_profile.get("company_sizes", [])
         job_titles = target_profile.get("job_titles", [])
         
-        # Build location string
-        location_str = ", ".join([loc for loc in location if loc and loc != "unknown"])
+        # Build location string from the provided location data
+        location_str = ", ".join([loc for loc in location if loc and loc != "unknown" and loc.strip()])
         
-        # Build industry/event context
-        event_context = " and ".join([evt for evt in event_types if evt and evt != "unknown"])
+        # Build industry/event context from the provided event types
+        event_context = " or ".join([evt for evt in event_types if evt and evt != "unknown" and evt.strip()])
         if not event_context:
-            event_context = "events and gatherings"
+            event_context = "event"
         
         # Build professional context
         professional_context = ""
@@ -136,7 +175,7 @@ class ProspectHunterAgent:
             professional_context += f" at {', '.join(company_sizes[:2])} companies"
         
         # Construct search goal - finding people/companies that NEED event planning services
-        search_goal = f"find companies and individuals planning {event_context}"
+        search_goal = f"Find individuals or organizations on LinkedIn and other social media who are planning a {event_context}"
         
         if location_str:
             search_goal += f" in {location_str}"
@@ -144,11 +183,11 @@ class ProspectHunterAgent:
         if professional_context:
             search_goal += f" {professional_context}"
         
-        search_goal += ". Extract their names, contact information (email, phone, LinkedIn), company details, and upcoming event needs from business directories, social media, and event announcement platforms."
+        search_goal += ". Extract their names, contact information (email, phone, LinkedIn), company details, and any details about the upcoming event."
         
         return search_goal
     
-    async def _hunt_with_ai_navigation(self, workflow_id: str, search_goal: str) -> Dict[str, Any]:
+    async def _hunt_with_ai_navigation(self, workflow_id: str, search_goal: str, session_id: str = None) -> Dict[str, Any]:
         """Use enhanced AI navigation to hunt prospects"""
         try:
             logger.info("Starting AI navigation hunt", search_goal=search_goal[:100])
@@ -158,27 +197,58 @@ class ProspectHunterAgent:
             
             # Call enhanced AI navigation
             result = await enhanced_browser_mcp.call_tool('navigate_and_extract', {
-                'url': 'https://www.google.com',
+                'url': 'https://www.linkedin.com',
                 'extraction_goal': search_goal,
-                'headless': False  # Keep visible for now
+                'headless': False,  # Keep visible for now
+                'session_id': session_id
             })
             
             if result.isError:
-                logger.error("AI navigation failed", error=result.content[0].text if result.content else "Unknown error")
+                error_text = result.content[0].text if result.content else "{}"
+                logger.error("AI navigation failed", error=error_text)
+                
+                # Check if this error is actually a pause-for-login event
+                try:
+                    error_data = json.loads(error_text)
+                    if error_data.get("paused_for_login"):
+                        logger.info("AI navigation paused for login, propagating pause state.")
+                        # Return the full data from the pause event
+                        return error_data
+                except json.JSONDecodeError:
+                    # Not a JSON error, so it's a genuine failure
+                    pass
+                
+                # If it's not a pause event, return a standard failure dictionary
                 return {"contacts": [], "summary": "Navigation failed", "success": False}
             
             # Parse AI navigation results
             navigation_data = json.loads(result.content[0].text)
             
+            # Debug: Check for Gordon Ramsay demo mode
+            if navigation_data.get("demo_mode"):
+                print(f"🎭 DEMO MODE DETECTED: Gordon Ramsay data returned")
+                print(f"    Extracted data: {navigation_data.get('extracted_data', [])}")
+            
             # Extract contact information from navigation results
             contacts = self._extract_contacts_from_navigation_data(navigation_data)
+            
+            # Debug: Show contact extraction results  
+            print(f"👥 EXTRACTED CONTACTS: {len(contacts)} contacts found")
+            for i, contact in enumerate(contacts):
+                print(f"    Contact {i+1}: {contact.get('name', 'Unknown')} - {contact.get('company', 'No company')}")
             
             return {
                 "contacts": contacts,
                 "navigation_summary": navigation_data.get("navigation_steps", []),
                 "sites_visited": len(set(step.get('url', '') for step in navigation_data.get('navigation_steps', []))),
                 "success": navigation_data.get("success", False),
-                "summary": f"Visited {len(set(step.get('url', '') for step in navigation_data.get('navigation_steps', [])))} sites, found {len(contacts)} contacts"
+                "summary": f"Visited {len(set(step.get('url', '') for step in navigation_data.get('navigation_steps', [])))} sites, found {len(contacts)} contacts",
+                # Propagate pause information from navigation results
+                "paused_for_login": navigation_data.get("paused_for_login", False),
+                "workflow_id": navigation_data.get("workflow_id"),
+                "site_name": navigation_data.get("site_name"),
+                "resume_endpoint": navigation_data.get("resume_endpoint"),
+                "message": navigation_data.get("message")
             }
             
         except Exception as e:
@@ -198,6 +268,13 @@ class ProspectHunterAgent:
                     data_item = data_item['extracted_data']
                 
                 if isinstance(data_item, dict):
+                    # First try to treat the item itself as a direct contact (for Gordon Ramsay demo)
+                    if any(key in data_item for key in ['name', 'email', 'phone', 'company_name']):
+                        contact = self._normalize_contact_data(data_item)
+                        if contact:
+                            contacts.append(contact)
+                            continue
+                    
                     # Look for contact lists
                     for key, value in data_item.items():
                         if isinstance(value, list) and len(value) > 0:
@@ -243,7 +320,7 @@ class ProspectHunterAgent:
             contact['linkedin'] = linkedin
         
         # Extract company
-        company = raw_contact.get('company') or raw_contact.get('business_name') or raw_contact.get('organization', '')
+        company = raw_contact.get('company') or raw_contact.get('company_name') or raw_contact.get('business_name') or raw_contact.get('organization', '')
         if company:
             contact['company'] = company
         

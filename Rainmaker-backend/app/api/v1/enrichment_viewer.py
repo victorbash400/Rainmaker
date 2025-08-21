@@ -58,18 +58,29 @@ async def broadcast_to_workflow(workflow_id: str, data: dict):
 def enrichment_viewer_callback(viewer_data: dict):
     """Callback function for enrichment updates - called from enrichment agent"""
     workflow_id = viewer_data.get("workflow_id")
+    step = viewer_data.get("step", "Unknown")
+    
+    print(f"🔥 CALLBACK RECEIVED: {step} for workflow {workflow_id}")
+    print(f"    Data keys: {list(viewer_data.keys())}")
+    print(f"    Active connections: {list(active_connections.keys())}")
+    
     if workflow_id:
         try:
             # Get the current event loop
             loop = asyncio.get_event_loop()
             if loop.is_running():
                 # Schedule broadcast in event loop
+                print(f"📡 SCHEDULING BROADCAST to {len(active_connections.get(workflow_id, []))} connections")
                 asyncio.create_task(broadcast_to_workflow(workflow_id, viewer_data))
             else:
                 # If no loop is running, run it synchronously
+                print(f"📡 RUNNING BROADCAST SYNC to {len(active_connections.get(workflow_id, []))} connections")
                 asyncio.run(broadcast_to_workflow(workflow_id, viewer_data))
         except Exception as e:
+            print(f"❌ BROADCAST FAILED: {str(e)}")
             logger.warning("Failed to schedule enrichment update broadcast", error=str(e))
+    else:
+        print("⚠️  NO WORKFLOW_ID in callback data!")
 
 @router.websocket("/ws/{workflow_id}")
 async def enrichment_viewer_websocket(websocket: WebSocket, workflow_id: str):
@@ -174,21 +185,3 @@ async def receive_enrichment_update(data: dict):
         logger.error("Failed to process enrichment update", error=str(e))
         return {"status": "error", "error": str(e)}
 
-# Global callback reference
-enrichment_callback = None
-
-def set_enrichment_viewer_callback(callback):
-    """Set callback function for enrichment viewer updates"""
-    global enrichment_callback
-    enrichment_callback = callback
-    logger.info("✅ Enrichment viewer callback set successfully", callback_type=type(callback).__name__)
-
-def get_enrichment_viewer_callback():
-    """Get the current enrichment viewer callback"""
-    return enrichment_callback
-
-# Initialize callback
-def setup_enrichment_viewer():
-    """Setup enrichment viewer callback"""
-    set_enrichment_viewer_callback(enrichment_viewer_callback)
-    logger.info("Enrichment viewer callback registered")

@@ -2,7 +2,8 @@
 Browser Viewer WebSocket API for real-time browser automation viewing
 """
 
-from fastapi import APIRouter, WebSocket, WebSocketDisconnect
+from fastapi import APIRouter, WebSocket, WebSocketDisconnect, HTTPException
+from fastapi.responses import JSONResponse
 from typing import Dict, Set
 import json
 import structlog
@@ -185,3 +186,115 @@ def setup_browser_viewer():
         logger.info("Enhanced browser viewer callback registered")
     except ImportError:
         logger.warning("Enhanced browser MCP not available")
+
+@router.post("/resume/{workflow_id}")
+async def resume_workflow_after_login(workflow_id: str):
+    """Resume a workflow after manual login completion"""
+    try:
+        logger.info("🔄 Resume request received", workflow_id=workflow_id)
+        
+        # Check if there's a saved browser state for this workflow
+        from app.mcp.enhanced_playwright_mcp import enhanced_browser_mcp
+        from app.mcp.navigate_extract_tool import NavigateExtractTool
+        
+        # Get the browser manager and check for saved state
+        browser_manager = enhanced_browser_mcp.browser_manager
+        if not browser_manager:
+            raise HTTPException(status_code=404, detail="No active browser session found")
+        
+        # Check if browser has context with saved state
+        if not browser_manager.context:
+            raise HTTPException(status_code=404, detail="No persistent browser context found")
+        
+        # Try to save current state (in case user just logged in)
+        try:
+            state_file = browser_manager.save_browser_state(workflow_id, "linkedin")  # Assume LinkedIn for now
+            logger.info("✅ Current session state saved", state_file=state_file)
+        except Exception as save_error:
+            logger.warning("Failed to save current state", error=str(save_error))
+        
+        # Check if this is a campaign workflow that needs to be resumed
+        campaign_resumed = False
+        if workflow_id.startswith("nav_"):
+            try:
+                # Try to find and resume related campaign workflow
+                from app.agents.campaign_coordinator import get_global_coordinator
+                coordinator = get_global_coordinator()
+                
+                # Look for paused campaigns
+                for plan_id, execution_state in coordinator.executing_campaigns.items():
+                    if execution_state.get("status") == "paused_for_manual_login":
+                        logger.info("🔄 Found paused campaign to resume", plan_id=plan_id)
+                        
+                        # Resume campaign execution 
+                        execution_state["status"] = "executing"
+                        execution_state["current_phase"] = "discovery"
+                        execution_state["message"] = "Resuming after manual login"
+                        coordinator._broadcast_status_update(plan_id, execution_state, force=True)
+                        campaign_resumed = True
+                        
+                        # Continue with enrichment phase
+                        logger.info("🔄 Continuing campaign after login", plan_id=plan_id)
+                        break
+                        
+            except Exception as resume_error:
+                logger.warning("Failed to resume campaign workflow", error=str(resume_error))
+        
+        # Broadcast resume notification to connected clients
+        await broadcast_to_workflow(workflow_id, {
+            "type": "workflow_resumed",
+            "data": {
+                "workflow_id": workflow_id,
+                "status": "resumed_after_login",
+                "message": "🔄 Workflow resumed after manual login. Browser state has been saved.",
+                "timestamp": "now",
+                "instruction": "You can now close this browser session. The saved login will be used in future sessions.",
+                "campaign_resumed": campaign_resumed
+            }
+        })
+        
+        return JSONResponse({
+            "success": True,
+            "workflow_id": workflow_id,
+            "status": "resumed",
+            "message": "✅ Workflow resumed successfully. Login state has been saved for future use.",
+            "saved_state": bool(browser_manager.context),
+            "instruction": "You can now close the browser. The login session has been saved."
+        })
+        
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Failed to resume workflow", error=str(e), workflow_id=workflow_id)
+        raise HTTPException(status_code=500, detail=f"Failed to resume workflow: {str(e)}")
+
+@router.get("/status/{workflow_id}")
+async def get_workflow_browser_status(workflow_id: str):
+    """Get browser status for a workflow"""
+    try:
+        from app.mcp.enhanced_playwright_mcp import enhanced_browser_mcp
+        
+        browser_manager = enhanced_browser_mcp.browser_manager if enhanced_browser_mcp else None
+        
+        status = {
+            "workflow_id": workflow_id,
+            "browser_active": bool(browser_manager and browser_manager.browser),
+            "context_active": bool(browser_manager and browser_manager.context),
+            "has_saved_state": False,
+            "state_files": []
+        }
+        
+        if browser_manager:
+            import os
+            # Check for saved state files
+            state_dir = browser_manager.state_dir
+            if os.path.exists(state_dir):
+                state_files = [f for f in os.listdir(state_dir) if workflow_id in f]
+                status["has_saved_state"] = len(state_files) > 0
+                status["state_files"] = state_files
+        
+        return JSONResponse(status)
+        
+    except Exception as e:
+        logger.error("Failed to get browser status", error=str(e))
+        raise HTTPException(status_code=500, detail=f"Failed to get status: {str(e)}")
