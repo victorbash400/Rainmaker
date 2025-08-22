@@ -146,7 +146,7 @@ const MeetingViewer: React.FC<MeetingViewerProps> = ({ workflowId, onComplete })
   const getStageIcon = () => {
     switch (stage) {
       case 'checking_response':
-        return <Search className="w-6 h-6 animate-pulse" />;
+        return null;
       case 'response_found':
         return <Mail className="w-6 h-6 text-green-600" />;
       case 'scheduling':
@@ -203,13 +203,15 @@ const MeetingViewer: React.FC<MeetingViewerProps> = ({ workflowId, onComplete })
       <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
         <div className="p-6">
           <div className="flex items-center gap-3 mb-6">
-            <motion.div 
-              className="p-2 bg-gray-50 rounded-lg"
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              {getStageIcon()}
-            </motion.div>
+            {stage !== 'checking_response' && (
+              <motion.div 
+                className="p-2 bg-gray-50 rounded-lg"
+                animate={{ scale: [1, 1.05, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                {getStageIcon()}
+              </motion.div>
+            )}
             <div>
               <h3 className="text-lg font-medium text-gray-900">Meeting Scheduler</h3>
               <p className="text-sm text-gray-500">{getStageMessage()}</p>
@@ -232,7 +234,7 @@ const MeetingViewer: React.FC<MeetingViewerProps> = ({ workflowId, onComplete })
                     transition={{ duration: 2, repeat: Infinity, ease: "linear" }}
                   >
                     <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center">
-                      <Search className="w-8 h-8 text-black" />
+                      <img src="/reading-eyes.gif" alt="Reading emails..." className="w-16 h-16" />
                     </div>
                   </motion.div>
                 </div>
@@ -297,7 +299,7 @@ const MeetingViewer: React.FC<MeetingViewerProps> = ({ workflowId, onComplete })
                     className="bg-black hover:bg-gray-800 disabled:bg-gray-400 text-white px-6 py-3 rounded-xl font-medium flex items-center gap-2 mx-auto transition-all duration-200"
                   >
                     {loading ? (
-                      <Loader2 className="w-4 h-4 animate-spin" />
+                      <img src="/reading-eyes.gif" alt="Checking for responses..." className="w-4 h-4" />
                     ) : (
                       <Search className="w-4 h-4" />
                     )}

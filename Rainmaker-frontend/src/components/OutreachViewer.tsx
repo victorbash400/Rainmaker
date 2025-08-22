@@ -12,7 +12,10 @@ import {
   AlertCircle,
   RotateCcw,
   MessageCircle,
-  Edit
+  Edit,
+  FileText,
+  ScanEye,
+  Eye
 } from 'lucide-react';
 
 interface Campaign {
@@ -28,9 +31,7 @@ interface OutreachViewerProps {
 }
 
 type OutreachStage = 
-  | 'analyzing'
-  | 'drafting' 
-  | 'sending'
+  | 'composing'
   | 'awaiting_reply'
   | 'checking'
   | 'reply_found'
@@ -83,6 +84,37 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
     }
   }, [initialized]);
 
+  // Periodically check for stage changes when in composing stage
+  useEffect(() => {
+    let intervalId: NodeJS.Timeout | null = null;
+    
+    if (stage === 'composing') {
+      intervalId = setInterval(async () => {
+        try {
+          const status = await fetchOutreachStatus();
+          if (status.campaign_sent) {
+            // Email has been sent, transition to awaiting_reply
+            setCampaign({
+              subject_line: status.subject_line,
+              message_body: 'Email content preview...',
+              status: status.campaign_status,
+              sent_at: status.sent_at
+            });
+            setStage('awaiting_reply');
+          }
+        } catch (error) {
+          console.warn('Failed to fetch outreach status during composing stage:', error);
+        }
+      }, 2000); // Check every 2 seconds
+    }
+    
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId);
+      }
+    };
+  }, [stage, workflowId]);
+
   const checkWorkflowStatus = async () => {
     try {
       // Check if workflow already has outreach status
@@ -98,67 +130,18 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
         setStage('awaiting_reply');
         setInitialized(true);
         return;
+      } else if (status.current_stage === 'outreach') {
+        // Workflow is currently composing an email
+        setStage('composing');
+        setInitialized(true);
+        return;
       }
     } catch (statusError) {
-      console.warn('Could not fetch outreach status, starting simulation:', statusError);
+      console.warn('Could not fetch outreach status:', statusError);
     }
-    
-    // If no existing campaign, simulate the flow
-    simulateOutreachFlow();
     
     // Mark as initialized to prevent re-runs
     setInitialized(true);
-  };
-
-  const simulateOutreachFlow = async () => {
-    try {
-      console.log('🎭 UI SIMULATION: Starting outreach flow animation (NOT real email)');
-      
-      // Stage 1: Analyzing
-      setStage('analyzing');
-      console.log('🎭 UI SIMULATION: Showing analyzing stage');
-      await delay(2000);
-
-      // Stage 2: Drafting
-      setStage('drafting');
-      console.log('🎭 UI SIMULATION: Showing drafting stage');
-      await delay(3000);
-
-      // Stage 3: Sending
-      setStage('sending');
-      console.log('🎭 UI SIMULATION: Showing sending stage (visual only)');
-      await delay(2000);
-
-      // Try to check outreach status, but handle errors gracefully
-      try {
-        const status = await fetchOutreachStatus();
-        if (status.campaign_sent) {
-          setCampaign({
-            subject_line: status.subject_line,
-            message_body: 'Email content preview...',
-            status: status.campaign_status,
-            sent_at: status.sent_at
-          });
-          setStage('awaiting_reply');
-          return;
-        }
-      } catch (statusError) {
-        console.warn('Could not fetch outreach status, using mock data:', statusError);
-      }
-
-      // Fallback: Use mock data for demo purposes
-      setCampaign({
-        subject_line: 'Demo Outreach Email',
-        message_body: 'This is a demo email for testing the outreach flow.',
-        status: 'sent',
-        sent_at: new Date().toISOString()
-      });
-      setStage('awaiting_reply');
-      
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error occurred');
-      setStage('error');
-    }
   };
 
   const fetchOutreachStatus = async () => {
@@ -318,20 +301,14 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
     }
   };
 
-  const delay = (ms: number) => new Promise(resolve => setTimeout(resolve, ms));
-
   const getStageIcon = () => {
     switch (stage) {
-      case 'analyzing':
-        return <Search className="w-6 h-6 animate-pulse" />;
-      case 'drafting':
-        return <Mail className="w-6 h-6 animate-pulse" />;
-      case 'sending':
+      case 'composing':
         return <Mail className="w-6 h-6 animate-pulse" />;
       case 'awaiting_reply':
         return <Clock className="w-6 h-6" />;
       case 'checking':
-        return <Search className="w-6 h-6 animate-pulse" />;
+        return <ScanEye className="w-6 h-6 animate-pulse" />;
       case 'reply_found':
         return <MessageSquare className="w-6 h-6" />;
       case 'overview_requesting':
@@ -339,7 +316,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
       case 'awaiting_overview':
         return <Clock className="w-6 h-6" />;
       case 'checking_overview':
-        return <Search className="w-6 h-6 animate-pulse" />;
+        return <ScanEye className="w-6 h-6 animate-pulse" />;
       case 'overview_received':
         return <MessageSquare className="w-6 h-6" />;
       case 'complete':
@@ -353,12 +330,8 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
 
   const getStageMessage = () => {
     switch (stage) {
-      case 'analyzing':
-        return 'AI is analyzing the prospect data...';
-      case 'drafting':
-        return 'Drafting a personalized email...';
-      case 'sending':
-        return 'Sending email...';
+      case 'composing':
+        return 'Composing personalized email...';
       case 'awaiting_reply':
         return 'Email sent! Awaiting reply.';
       case 'checking':
@@ -400,13 +373,15 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
       <div className="bg-white border border-gray-100 rounded-xl shadow-sm overflow-hidden">
         <div className="p-6">
           <div className="flex items-center gap-3 mb-6">
-            <motion.div 
-              className="p-2 bg-gray-50 rounded-lg"
-              animate={{ scale: [1, 1.05, 1] }}
-              transition={{ duration: 2, repeat: Infinity }}
-            >
-              {getStageIcon()}
-            </motion.div>
+            {!['checking', 'checking_overview'].includes(stage) && (
+              <motion.div 
+                className="p-2 bg-gray-50 rounded-lg"
+                animate={{ scale: [1, 1.05, 1] }}
+                transition={{ duration: 2, repeat: Infinity }}
+              >
+                {getStageIcon()}
+              </motion.div>
+            )}
             <div>
               <h3 className="text-lg font-medium text-gray-900">Outreach Campaign</h3>
               <p className="text-sm text-gray-500">{getStageMessage()}</p>
@@ -414,12 +389,11 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
           </div>
 
       <AnimatePresence mode="wait">
-        {/* Initial Processing Stages */}
-        {['analyzing', 'drafting', 'sending'].includes(stage) && (
+        {/* Composing Email Stage */}
+        {stage === 'composing' && (
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -20 }}
             className="space-y-6"
           >
             {/* Animated Email Icon */}
@@ -427,10 +401,10 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
               <motion.div
                 className="relative"
                 animate={{ 
-                  rotate: stage === 'sending' ? [0, 2, -2, 0] : 0
+                  rotate: [0, 1, -1, 0]
                 }}
                 transition={{ 
-                  duration: 1.5, 
+                  duration: 2, 
                   repeat: Infinity, 
                   ease: "easeInOut" 
                 }}
@@ -449,16 +423,22 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                 animate={{ opacity: [0.7, 1, 0.7] }}
                 transition={{ duration: 2, repeat: Infinity }}
               >
-                {stage === 'analyzing' && 'Analyzing Prospect'}
-                {stage === 'drafting' && 'Crafting Email'}
-                {stage === 'sending' && 'Sending Message'}
+                Composing Email
               </motion.h4>
               
               <p className="text-sm text-gray-500 max-w-sm mx-auto leading-relaxed">
-                {stage === 'analyzing' && 'AI is analyzing prospect data and enrichment insights to create the perfect outreach strategy.'}
-                {stage === 'drafting' && 'Creating a personalized, compelling message that resonates with your prospect\'s needs.'}
-                {stage === 'sending' && 'Delivering your carefully crafted email through secure channels.'}
+                Creating a personalized, compelling message that resonates with your prospect's needs.
               </p>
+            </div>
+
+            {/* Writing Animation - Three Lines */}
+            <div className="flex flex-col items-center space-y-3">
+              <div className="flex space-x-2">
+                <div className="w-2 h-2 bg-black rounded-full animate-bounce"></div>
+                <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+                <div className="w-2 h-2 bg-black rounded-full animate-bounce" style={{ animationDelay: '0.4s' }}></div>
+              </div>
+              <p className="text-xs text-gray-400">Crafting the perfect message...</p>
             </div>
 
             {/* Progress Bar */}
@@ -543,10 +523,10 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1.2 }}
               >
-                {loading ? (
-                  <Search className="w-4 h-4 animate-pulse" />
+{loading ? (
+                  <ScanEye className="w-4 h-4 animate-pulse" />
                 ) : (
-                  <Search className="w-4 h-4" />
+                  <ScanEye className="w-4 h-4" />
                 )}
                 Check for New Replies
               </motion.button>
@@ -569,7 +549,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
             animate={{ opacity: 1 }}
             className="text-center py-8"
           >
-            <Search className="w-6 h-6 animate-pulse text-gray-600 mx-auto mb-3" />
+            <img src="/reading-eyes.gif" alt="Reading emails..." className="w-16 h-16 mx-auto mb-3" />
             <p className="text-sm text-gray-500">Scanning inbox and analyzing replies...</p>
           </motion.div>
         )}
@@ -727,10 +707,10 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 1.4 }}
               >
-                {loading ? (
-                  <Search className="w-4 h-4 animate-pulse" />
+{loading ? (
+                  <ScanEye className="w-4 h-4 animate-pulse" />
                 ) : (
-                  <Search className="w-4 h-4" />
+                  <ScanEye className="w-4 h-4" />
                 )}
                 Check for Event Details
               </motion.button>
@@ -757,7 +737,7 @@ const OutreachViewer: React.FC<OutreachViewerProps> = ({ workflowId, onComplete 
             <div className="flex justify-center">
               <div className="w-20 h-20 bg-white rounded-2xl shadow-sm border border-gray-200 flex items-center justify-center">
                 {/* Search icon with gentle pulse */}
-                <Search className="w-8 h-8 text-black animate-pulse" />
+                <img src="/reading-eyes.gif" alt="Reading emails..." className="w-16 h-16" />
               </div>
             </div>
 

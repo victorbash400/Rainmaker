@@ -249,9 +249,53 @@ class ConversationalPlannerAgent:
         
         collected_info_str = json.dumps(conversation.collected_info, indent=2)
         
+        # Check if we have all the required information
+        has_event_types = (
+            "event_types_to_target" in conversation.collected_info or
+            "event_types" in conversation.collected_info
+        )
+        
+        has_geographic_info = (
+            "geographic_location_to_search" in conversation.collected_info or
+            "geographic_location" in conversation.collected_info
+        )
+        
+        has_search_methods = (
+            "search_channels" in conversation.collected_info or
+            "search_methods" in conversation.collected_info
+        )
+        
+        has_prospect_count = (
+            "target_prospects" in conversation.collected_info or
+            "number_of_prospects" in conversation.collected_info
+        )
+        
+        # Count how many requirements we have
+        requirements_met = sum([
+            has_event_types,
+            has_geographic_info,
+            has_search_methods,
+            has_prospect_count
+        ])
+        
+        # Calculate completion percentage
+        if requirements_met == 4:
+            # All requirements met - check if user confirmed
+            if self._user_confirmed_to_start(conversation):
+                completion_percentage = 1.0
+                next_phase = "complete"
+            else:
+                completion_percentage = 0.9
+                next_phase = "approval_confirmation"
+        else:
+            completion_percentage = requirements_met * 0.25
+            next_phase = conversation.current_phase.value
+            
         phase_prompt = f"""
         CURRENT PHASE: {conversation.current_phase.value}
         COLLECTED INFO: {collected_info_str}
+        COMPLETION PERCENTAGE: {completion_percentage}
+        REQUIREMENTS MET: {requirements_met}/4
 
         You help find EVENT PLANNING PROSPECTS. Check if you have these 4 things:
         1. Event types to target (weddings, corporate, birthdays, etc.)
@@ -259,11 +303,7 @@ class ConversationalPlannerAgent:
         3. Search methods/channels (social media, event listings, etc.)
         4. Number of prospects needed
 
-        Calculate completion percentage based on what you have:
-        - Have 1 item: completion = 0.25
-        - Have 2 items: completion = 0.50  
-        - Have 3 items: completion = 0.75
-        - Have all 4 items: completion = 0.90, next_phase = "approval_confirmation"
+        Current completion: {completion_percentage*100}%
 
         If missing any: ask ONLY for what's missing with simple questions
 
@@ -272,7 +312,10 @@ class ConversationalPlannerAgent:
         - Partnerships, revenue targets, KPIs  
         - Company strategies or growth plans
 
-        Return JSON: {{"next_phase": "phase_name", "completion_percentage": 0.0-1.0, "clarifications_needed": ["simple question"], "concerns": []}}
+        Return JSON: {{"next_phase": "{next_phase}", "completion_percentage": {completion_percentage}, "clarifications_needed": [], "concerns": []}}
+        
+        If all requirements are met but user hasn't confirmed, set completion to 0.9 and next_phase to "approval_confirmation"
+        If all requirements are met AND user confirmed, set completion to 1.0 and next_phase to "complete"
         """
         
         try:
@@ -290,18 +333,43 @@ class ConversationalPlannerAgent:
             response = response.strip()
             
             if not response:
-                logger.warning("Empty response from phase determination")
-                raise ValueError("Empty response from phase determination")
+                logger.warning("Empty response from phase determination, using calculated values")
+                # Fallback to manual calculation
+                response = {
+                    "next_phase": next_phase,
+                    "completion_percentage": completion_percentage,
+                    "clarifications_needed": [],
+                    "concerns": []
+                }
+            else:
+                # Parse and override with our calculated values to ensure accuracy
+                parsed_response = json.loads(response)
+                parsed_response["completion_percentage"] = completion_percentage
+                parsed_response["next_phase"] = next_phase
+                response = parsed_response
             
-            parsed_response = json.loads(response)
-            return parsed_response
+            return response
             
         except json.JSONDecodeError as e:
             logger.error("Failed to parse JSON from phase determination response", error=str(e))
-            raise
+            # Fallback to manual calculation
+            response = {
+                "next_phase": next_phase,
+                "completion_percentage": completion_percentage,
+                "clarifications_needed": [],
+                "concerns": []
+            }
+            return response
         except Exception as e:
             logger.error("Failed to determine next phase", error=str(e))
-            raise
+            # Fallback to manual calculation
+            response = {
+                "next_phase": next_phase,
+                "completion_percentage": completion_percentage,
+                "clarifications_needed": [],
+                "concerns": []
+            }
+            return response
     
     async def _generate_phase_response(self, conversation: PlanningConversation, 
                                      phase_info: Dict[str, Any]) -> str:
@@ -538,15 +606,15 @@ class ConversationalPlannerAgent:
             logger.error("Failed to store campaign plan", error=str(e), plan_id=plan.plan_id)
     
     def _check_planning_completion(self, conversation: PlanningConversation) -> bool:
-        """Check if enough information has been gathered to create a campaign plan"""
+        """Check if planning conversation has collected all required information"""
         
         info = conversation.collected_info
         
-        # Check for required information
+        # Check for each required piece of information
         has_event_types = (
-            "event_types_to_target" in info or 
+            "event_types_to_target" in info or
             "event_types" in info or
-            any("event" in str(key).lower() for key in info.keys())
+            any("event" in str(key).lower() and "type" in str(key).lower() for key in info.keys())
         )
         
         has_geographic_info = (
@@ -575,9 +643,11 @@ class ConversationalPlannerAgent:
             has_prospect_count
         )
         
-        # Only complete if we have ALL required info AND user explicitly confirms
-        user_confirmed = self._user_confirmed_to_start(conversation)
-        is_complete = comprehensive_requirements_met and user_confirmed
+        # Check if we've reached 100% completion (which means user confirmed)
+        reached_full_completion = conversation.completion_percentage >= 1.0
+        
+        # Complete if we have all requirements AND either user confirmed or we've reached 100%
+        is_complete = comprehensive_requirements_met and (self._user_confirmed_to_start(conversation) or reached_full_completion)
         
         return is_complete
 

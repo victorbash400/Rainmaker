@@ -199,7 +199,7 @@ export default function EnrichmentViewer({ workflowId, className = "", onStatusC
 
         {/* Clean insights and sources */}
         {enrichmentData && (
-          <div className="mt-6 space-y-4">
+          <div className="mt-4 space-y-3">
             {/* Key insights in a clean grid */}
             <div className="grid grid-cols-2 gap-3 text-sm">
               {enrichmentData.profile_summary && enrichmentData.profile_summary.role && (
@@ -230,7 +230,7 @@ export default function EnrichmentViewer({ workflowId, className = "", onStatusC
             
             {/* Clean citations - no scrollbar, just show top sources */}
             {enrichmentData.citations && enrichmentData.citations.length > 0 && (
-              <div className="pt-3 border-t border-gray-100">
+              <div className="pt-2 border-t border-gray-100">
                 <div className="flex items-center justify-between mb-3">
                   <span className="text-xs text-gray-400">Sources ({enrichmentData.citations.length})</span>
                 </div>
@@ -245,7 +245,7 @@ export default function EnrichmentViewer({ workflowId, className = "", onStatusC
                         {citation.title || 'Research Source'}
                       </div>
                       <div className="text-xs text-gray-500 mt-1 truncate">
-                        {citation.url}
+                        {new URL(citation.url).hostname}
                       </div>
                     </a>
                   ))}

@@ -14,7 +14,7 @@ from enum import Enum
 import structlog
 from langgraph.graph import StateGraph, END
 from langgraph.prebuilt import ToolNode
-from langchain_openai import ChatOpenAI
+
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
 from langchain_core.tools import BaseTool
 
@@ -24,7 +24,7 @@ from app.core.state import (
     ConversationSummary, ProposalData, MeetingDetails
 )
 from app.core.config import settings
-from app.services.openai_service import OpenAIService
+
 from app.mcp.web_search import web_search_mcp
 from app.mcp.enhanced_playwright_mcp import enhanced_browser_mcp
 # from app.mcp.proposal import proposal_mcp  # TODO: Create proposal MCP
@@ -54,12 +54,7 @@ class RainmakerWorkflow:
     """
     
     def __init__(self):
-        self.openai_service = OpenAIService()
-        self.llm = ChatOpenAI(
-            model="gpt-4",
-            temperature=0.1,
-            openai_api_key=settings.OPENAI_API_KEY.get_secret_value() if settings.OPENAI_API_KEY else None
-        )
+        
         
         # Create the workflow graph
         self.workflow = self._create_workflow()

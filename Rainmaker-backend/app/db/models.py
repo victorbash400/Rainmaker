@@ -4,6 +4,7 @@ SQLAlchemy database models
 
 from sqlalchemy import Column, Integer, String, Text, DateTime, Enum, ForeignKey, Boolean, JSON
 from sqlalchemy.sql.sqltypes import Numeric
+from sqlalchemy.dialects.mysql import TEXT, LONGTEXT
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
 from app.db.session import Base
@@ -298,4 +299,43 @@ class EmailMessage(Base):
     
     # Relationships
     user = relationship("User")
+    prospect = relationship("Prospect")
+
+
+class ProspectScrapedData(Base):
+    """
+    Vector-enabled storage for scraped prospect research data.
+    Enables semantic search across all research content for deep analysis.
+    """
+    __tablename__ = "prospect_scraped_data"
+    
+    id = Column(Integer, primary_key=True, index=True)
+    prospect_id = Column(Integer, ForeignKey("prospects.id", ondelete="CASCADE"), nullable=False)
+    workflow_id = Column(String(255), index=True, nullable=False)
+    
+    # Source information
+    source_url = Column(String(1000), nullable=False)
+    source_title = Column(String(500))
+    source_type = Column(Enum("person_search", "company_search", "event_search", name="source_type"), nullable=False)
+    search_query = Column(String(1000), nullable=False)
+    
+    # Content storage
+    content = Column(TEXT, nullable=False)  # Full text content
+    content_summary = Column(Text)  # AI-generated summary
+    
+    # Vector embedding for semantic search using TiDB native VECTOR type
+    # TiDB supports VECTOR type with dimensions up to 16000
+    # Using TiDB's native vector search capabilities
+    content_vector = Column(Text)  # Will be updated to VECTOR(3072) via SQL migration
+    
+    # Metadata
+    content_length = Column(Integer, default=0)
+    chunk_index = Column(Integer, default=0)  # For large content split into chunks
+    embedding_model = Column(String(100), default="text-embedding-004")  # Track embedding model used
+    
+    # Timestamps
+    scraped_at = Column(DateTime(timezone=True), nullable=False)
+    created_at = Column(DateTime(timezone=True), server_default=func.now())
+    
+    # Relationships
     prospect = relationship("Prospect")

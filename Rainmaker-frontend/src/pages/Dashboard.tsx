@@ -276,44 +276,30 @@ export default function Dashboard() {
                               {planningResponse && planningResponse.is_complete && planningResponse.campaign_plan && index === messages.length - 1 && (
                                 <div className="mt-4 flex items-center space-x-3">
                                   <button
-                                    onClick={async () => {
+                                    onClick={() => {
                                       console.log('Start Campaign button clicked')
-                                      try {
-                                        console.log('Executing campaign plan:', planningResponse.campaign_plan.plan_id)
-                                        const result = await executeCampaignPlan(planningResponse.campaign_plan.plan_id)
-                                        console.log('Campaign execution result:', result)
-                                        
-                                        // Show success message and navigate to workflows
-                                        addMessage({
-                                          role: 'assistant',
-                                          content: '🚀 Campaign launched! If you\'re not redirected automatically, click the Workflows tab to monitor progress.',
-                                          timestamp: new Date().toLocaleTimeString()
+                                      console.log('Campaign plan to execute:', planningResponse.campaign_plan)
+                                      console.log('Plan ID:', planningResponse.campaign_plan.plan_id)
+                                      
+                                      // Start campaign execution (don't wait for it to complete)
+                                      executeCampaignPlan(planningResponse.campaign_plan.plan_id)
+                                        .then(result => {
+                                          console.log('Campaign execution started:', result)
                                         })
-                                        
-                                        // Navigate to workflows page
-                                        console.log('Campaign execution successful, navigating to workflows')
-                                        
-                                        // Small delay to ensure message is added, then navigate
-                                        setTimeout(() => {
-                                          console.log('Attempting navigation to /workflows')
-                                          try {
-                                            navigate('/workflows')
-                                            console.log('React Router navigate() called successfully')
-                                          } catch (navError) {
-                                            console.error('React Router navigation error:', navError)
-                                            // Hard redirect as fallback
-                                            console.log('Falling back to window.location')
-                                            window.location.href = '/workflows'
-                                          }
-                                        }, 500)
-                                      } catch (error) {
-                                        console.error('Failed to execute campaign:', error)
-                                        addMessage({
-                                          role: 'assistant',
-                                          content: '❌ Failed to launch campaign. Please try again.',
-                                          timestamp: new Date().toLocaleTimeString()
+                                        .catch(error => {
+                                          console.error('Failed to start campaign execution:', error)
                                         })
-                                      }
+                                      
+                                      // Show success message
+                                      addMessage({
+                                        role: 'assistant',
+                                        content: '🚀 Campaign launched! Redirecting to workflows...',
+                                        timestamp: new Date().toLocaleTimeString()
+                                      })
+                                      
+                                      // Navigate to workflows page immediately
+                                      console.log('Navigating to workflows page')
+                                      window.location.href = '/workflows'
                                     }}
                                     className="flex items-center space-x-2 px-4 py-2.5 bg-black hover:bg-gray-900 text-white rounded-lg transition-all duration-200 text-sm font-medium shadow-sm hover:shadow-md"
                                   >
@@ -392,63 +378,86 @@ export default function Dashboard() {
                       ></div>
                     </div>
                     <div className="text-sm text-gray-600">
-                      {Math.round(planningResponse.completion_percentage * 100)}% complete
+                      {planningResponse.completion_percentage >= 1.0 
+                        ? "100% complete - Ready to launch!" 
+                        : `${Math.round(planningResponse.completion_percentage * 100)}% complete`}
                     </div>
                     
                     {/* Requirements Checklist */}
                     <div className="space-y-4 mt-4">
                       <div className="text-xs font-medium text-gray-700 mb-2">Required Information:</div>
                       
-                      {[
-                        { name: "Event types", threshold: 0.25 },
-                        { name: "Geographic location", threshold: 0.50 },
-                        { name: "Search methods", threshold: 0.75 },
-                        { name: "Number of prospects", threshold: 0.90 }
-                      ].map((step, index) => {
-                        const isCompleted = planningResponse.completion_percentage >= step.threshold
-                        const isCurrentStep = 
-                          planningResponse.completion_percentage < step.threshold && 
-                          (index === 0 || planningResponse.completion_percentage >= ([0.25, 0.50, 0.75][index - 1] || 0))
-                        const isPending = !isCompleted && !isCurrentStep
-                        
-                        return (
-                          <div key={index} className="relative">
-                            {/* Connecting line */}
-                            {index > 0 && (
-                              <div className={`absolute left-2 -top-3 w-px h-3 ${
-                                planningResponse.completion_percentage >= ([0.25, 0.50, 0.75][index - 1] || 0)
-                                  ? 'bg-black' 
-                                  : 'bg-gray-200'
-                              }`}></div>
-                            )}
-                            
-                            <div className="flex items-center space-x-3">
-                              {/* Status indicator */}
-                              <div className="relative">
-                                {isCompleted ? (
-                                  <div className="w-4 h-4 bg-black rounded-full flex items-center justify-center">
-                                    <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                                    </svg>
-                                  </div>
-                                ) : isCurrentStep ? (
-                                  <div className="w-4 h-4 flex items-center justify-center">
-                                    <div className="w-3 h-3 border-2 border-gray-400 border-t-black rounded-full animate-spin"></div>
-                                  </div>
-                                ) : (
-                                  <div className="w-4 h-4 border border-gray-300 rounded-full"></div>
-                                )}
-                              </div>
-                              
-                              <span className={`text-xs ${
-                                isPending ? 'text-gray-400' : 'text-gray-600'
-                              }`}>
-                                {step.name}
-                              </span>
+                      {planningResponse.completion_percentage >= 1.0 ? (
+                        <div className="flex items-center space-x-3">
+                          <div className="relative">
+                            <div className="w-4 h-4 bg-green-500 rounded-full flex items-center justify-center">
+                              <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                              </svg>
                             </div>
                           </div>
-                        )
-                      })}
+                          <span className="text-xs text-gray-600 font-medium">
+                            Ready to launch campaign!
+                          </span>
+                        </div>
+                      ) : (
+                        [
+                          { name: "Event types", threshold: 0.25 },
+                          { name: "Geographic location", threshold: 0.50 },
+                          { name: "Search methods", threshold: 0.75 },
+                          { name: "Number of prospects", threshold: 0.90 },
+                          { name: "Ready to proceed", threshold: 1.00 }
+                        ].map((step, index) => {
+                          const isCompleted = planningResponse.completion_percentage >= step.threshold
+                          const isCurrentStep = 
+                            planningResponse.completion_percentage < step.threshold && 
+                            (index === 0 || planningResponse.completion_percentage >= ([0.25, 0.50, 0.75, 0.90][index - 1] || 0))
+                          const isPending = !isCompleted && !isCurrentStep
+                          
+                          // Don't show the "Ready to proceed" step until we're actually at 100%
+                          if (step.threshold === 1.00 && planningResponse.completion_percentage < 1.00) {
+                            return null
+                          }
+                          
+                          return (
+                            <div key={index} className="relative">
+                              {/* Connecting line */}
+                              {index > 0 && (
+                                <div className={`absolute left-2 -top-3 w-px h-3 ${
+                                  planningResponse.completion_percentage >= ([0.25, 0.50, 0.75, 0.90][index - 1] || 0)
+                                    ? 'bg-black' 
+                                    : 'bg-gray-200'
+                                }`}></div>
+                              )}
+                              
+                              <div className="flex items-center space-x-3">
+                                {/* Status indicator */}
+                                <div className="relative">
+                                  {isCompleted ? (
+                                    <div className="w-4 h-4 bg-black rounded-full flex items-center justify-center">
+                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                      </svg>
+                                    </div>
+                                  ) : isCurrentStep ? (
+                                    <div className="w-4 h-4 flex items-center justify-center">
+                                      <div className="w-3 h-3 border-2 border-gray-400 border-t-black rounded-full animate-spin"></div>
+                                    </div>
+                                  ) : (
+                                    <div className="w-4 h-4 border border-gray-300 rounded-full"></div>
+                                  )}
+                                </div>
+                                
+                                <span className={`text-xs ${
+                                  isPending ? 'text-gray-400' : 'text-gray-600'
+                                }`}>
+                                  {step.name}
+                                </span>
+                              </div>
+                            </div>
+                          )
+                        })
+                      )}
                     </div>
                     
                     {/* Current Status */}

@@ -143,9 +143,9 @@ export default function Workflows() {
       },
       {
         name: 'proposal',
-        status: (status.metrics.proposals_generated > 0 || status.status === 'completed') ? 'complete' as const :
+        status: (status.metrics.proposals_generated > 0 || status.status === 'completed' || ['meeting'].includes(status.current_phase)) ? 'complete' as const :
                 status.current_phase === 'proposal' ? 'active' as const : 'pending' as const,
-        duration: (status.metrics.proposals_generated > 0 || status.status === 'completed') ? '5m 15s' : undefined
+        duration: (status.metrics.proposals_generated > 0 || status.status === 'completed' || ['meeting'].includes(status.current_phase)) ? '5m 15s' : undefined
       },
       {
         name: 'meeting',

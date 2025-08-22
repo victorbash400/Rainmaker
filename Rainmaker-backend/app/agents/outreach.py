@@ -11,6 +11,59 @@ logger = structlog.get_logger(__name__)
 class OutreachAgent:
     """An agent to draft and send personalized outreach emails."""
 
+    def _format_enrichment_data(self, enrichment) -> str:
+        """Format enrichment data for use in the email prompt."""
+        if not enrichment or not hasattr(enrichment, 'ai_insights') or not enrichment.ai_insights:
+            return "No specific enrichment data available."
+        
+        ai_insights = enrichment.ai_insights
+        formatted_data = []
+        
+        # Add company information
+        if 'company' in ai_insights:
+            company_info = ai_insights['company']
+            if isinstance(company_info, dict):
+                if 'name' in company_info:
+                    formatted_data.append(f"Company: {company_info['name']}")
+                if 'industry' in company_info:
+                    formatted_data.append(f"Industry: {company_info['industry']}")
+                if 'size' in company_info:
+                    formatted_data.append(f"Company Size: {company_info['size']}")
+        
+        # Add event indicators
+        if 'event_indicators' in ai_insights:
+            event_info = ai_insights['event_indicators']
+            if isinstance(event_info, dict):
+                if 'event_types' in event_info and event_info['event_types']:
+                    formatted_data.append(f"Event Types: {', '.join(event_info['event_types'])}")
+                if 'event_frequency' in event_info:
+                    formatted_data.append(f"Event Frequency: {event_info['event_frequency']}")
+                if 'budget_indicators' in event_info:
+                    formatted_data.append(f"Budget Indicators: {event_info['budget_indicators']}")
+        
+        # Add key insights
+        if 'key_insights' in ai_insights:
+            insights = ai_insights['key_insights']
+            if isinstance(insights, list) and insights:
+                formatted_data.append("Key Insights:")
+                for insight in insights[:3]:  # Limit to top 3 insights
+                    if isinstance(insight, str):
+                        formatted_data.append(f"  - {insight}")
+                    elif isinstance(insight, dict):
+                        formatted_data.append(f"  - {insight.get('description', insight.get('summary', str(insight)))}")
+        
+        # Add recent news or activities
+        if 'recent_news' in ai_insights:
+            news = ai_insights['recent_news']
+            if isinstance(news, list) and news:
+                formatted_data.append("Recent News:")
+                for item in news[:2]:  # Limit to 2 recent items
+                    if isinstance(item, dict):
+                        title = item.get('title', 'Untitled')
+                        formatted_data.append(f"  - {title}")
+        
+        return "\n".join(formatted_data) if formatted_data else "No specific enrichment data available."
+
     async def execute_outreach(self, state: RainmakerState) -> RainmakerState:
         """Executes the outreach process for a given prospect."""
         workflow_id = state.get("workflow_id")
@@ -30,6 +83,14 @@ class OutreachAgent:
             return state
 
         try:
+            # Update stage to composing for UI feedback
+            from app.core.state import StateManager, WorkflowStage
+            state = StateManager.update_stage(state, WorkflowStage.OUTREACH)
+            
+            # Save state to make stage update available to frontend
+            from app.core.persistence import persistence_manager
+            persistence_manager.save_state(workflow_id, state)
+            
             # 1. Draft email using Gemini
             draft = await self._draft_email_with_gemini(prospect_data, enrichment_data)
 
@@ -125,52 +186,101 @@ class OutreachAgent:
 
         logger.info(f"Drafting email for {prospect.name}")  
         
-        # Log that enrichment data is being received but ignored for demo
-        logger.info(
-            "Received enrichment data but using demo/test data for outreach",
-            prospect_name=prospect.name,
-            enrichment_received=bool(enrichment),
-            using_demo_mode=True
-        )
+        # Check if we have real enrichment data
+        has_real_enrichment = enrichment and hasattr(enrichment, 'ai_insights') and enrichment.ai_insights
+        
+        if has_real_enrichment:
+            logger.info(
+                "Using real enrichment data for outreach",
+                prospect_name=prospect.name,
+                enrichment_received=True
+            )
+        else:
+            logger.info(
+                "No enrichment data available, using basic prospect info",
+                prospect_name=prospect.name,
+                enrichment_received=False
+            )
 
-        # Use demo/test data for email generation instead of enrichment
         system_prompt = (
-            "You are an expert sales development representative for an elite event planning company. "
+            "You are an expert sales development representative for Rainmaker, an elite event planning company. "
             "Your task is to write a personalized, concise, and compelling cold outreach email to a prospect. "
-            "Use the provided demo information to create a professional outreach email. "
-            "The tone should be professional yet approachable. The goal is to start a conversation, not to close a deal. "
-            "End with a clear, low-friction call to action, like asking a simple question."
+            "The tone should be professional yet approachable. The goal is to introduce Rainmaker's services "
+            "and start a conversation about their event planning needs. "
+            "Create a well-formatted email without markdown or special characters like asterisks. "
+            "Use proper email formatting with clear paragraphs. "
+            "End with a clear, low-friction call to action."
         )
 
-        # Use internal demo data instead of enrichment data
-        user_message = f"""
-        Please draft a cold outreach email for our demo/test scenario.
+        # Use real enrichment data if available, otherwise use basic prospect info
+        if has_real_enrichment:
+            user_message = f"""
+            Please draft a cold outreach email for Rainmaker Event Planning services.
 
-        **Prospect Information:**
-        - Name: {prospect.name}
-        - Company: {prospect.company_name or 'Demo Company'}
-        - Email: {prospect.email}
+            **Prospect Information:**
+            - Name: {prospect.name}
+            - Company: {prospect.company_name or 'Unknown Company'}
+            - Email: {prospect.email}
 
-        **Demo Scenario (Internal Test Data):**
-        - Role: Business Executive/Event Coordinator
-        - Company Industry: Real Estate / Professional Services
-        - Event Type: Corporate networking events and client appreciation events
-        - Event Timeline: Quarterly events planned 2-3 months in advance
-        - Budget Indicators: Mid-market budget ($10K-50K range)
-        - Recommended Angle: Focus on ROI and professional networking value
-        - Key Points: Emphasize quality, reliability, and seamless execution
+            **Enrichment Insights:**
+            {self._format_enrichment_data(enrichment)}
 
-        **Instructions:**
-        Create a professional outreach email using this demo scenario. 
-        Return ONLY a valid JSON object with two keys: "subject" and "body".
-        Do not include any other text, greetings, or explanations outside of the JSON.
+            **Instructions:**
+            Create a professional outreach email that:
+            1. References relevant information from the enrichment insights to show you've done your research
+            2. Briefly introduces Rainmaker as an event planning company
+            3. Mentions how you can help with their specific event needs
+            4. Keeps it concise (3-4 short paragraphs maximum)
+            5. Uses a friendly but professional tone
+            6. Ends with a clear call to action (asking to connect or discuss their upcoming events)
+            7. Does NOT use markdown, asterisks, or special formatting characters
+            8. Ensures all newlines are properly escaped as \n in the JSON response
 
-        Example Response:
-        {{
-            "subject": "A Question About Your Upcoming Event",
-            "body": "Hi {prospect.name}, ..."
-        }}
-        """
+            Return ONLY a valid JSON object with two keys: "subject" and "body".
+            Make sure the JSON is properly formatted with escaped newlines.
+            Do not include any other text, greetings, or explanations outside of the JSON.
+
+            Example Response:
+            {{
+                "subject": "Event Planning Services for {prospect.company_name or 'Your Upcoming Events'}",
+                "body": "Hi {prospect.name},\n\nI noticed that...\n\nBest regards,\n[Your Name]"
+            }}
+            """
+        else:
+            # Fallback to basic prospect info
+            user_message = f"""
+            Please draft a cold outreach email for Rainmaker Event Planning services.
+
+            **Prospect Information:**
+            - Name: {prospect.name}
+            - Company: {prospect.company_name or 'Unknown Company'}
+            - Email: {prospect.email}
+
+            **Instructions:**
+            Create a professional outreach email that:
+            1. Briefly introduces Rainmaker as an event planning company
+            2. Mentions how you can help with corporate events, networking events, or client appreciation events
+            3. Keeps it concise (3-4 short paragraphs maximum)
+            4. Uses a friendly but professional tone
+            5. Ends with a clear call to action (asking to connect or discuss their event needs)
+            6. Does NOT use markdown, asterisks, or special formatting characters
+            7. Ensures all newlines are properly escaped as \n in the JSON response
+
+            Return ONLY a valid JSON object with two keys: "subject" and "body".
+            Make sure the JSON is properly formatted with escaped newlines.
+            Do not include any other text, greetings, or explanations outside of the JSON.
+
+            Example Response:
+            {{
+                "subject": "Professional Event Planning Services for {prospect.company_name or 'Your Team'}",
+                "body": "Hi {prospect.name},
+
+I'm reaching out from Rainmaker...
+
+Best regards,
+[Your Name]"
+            }}
+            """
 
         response_json = await gemini_service.generate_json_response(
             system_prompt=system_prompt,
@@ -193,22 +303,28 @@ class OutreachAgent:
             "You are an expert event planning sales representative following up after receiving a positive initial response. "
             "Your task is to write a professional follow-up email asking for event overview details. "
             "The tone should be enthusiastic yet professional. You want to gather key event information "
-            "to create a customized proposal. Keep it concise and focused."
+            "to create a customized proposal. Keep it concise and focused. "
+            "Reference the previous conversation naturally. "
+            "Create a well-formatted email without markdown or special characters like asterisks. "
+            "Use proper email formatting with clear paragraphs."
         )
+
+        # Extract information from the original campaign
+        original_subject = original_campaign.get("subject_line", "our previous conversation") if isinstance(original_campaign, dict) else "our previous conversation"
+        original_body_preview = original_campaign.get("message_body", "")[:100] if isinstance(original_campaign, dict) else ""
 
         user_message = f"""
         Please draft a follow-up email requesting event overview details.
 
         **Prospect Information:**
         - Name: {prospect.name}
-        - Company: {prospect.company_name or 'Demo Company'}
+        - Company: {prospect.company_name or 'Unknown Company'}
         - Email: {prospect.email}
 
-        **Context:**
-        - We sent an initial outreach email about event planning services
-        - The prospect has responded positively showing interest
-        - Now we need to gather event details to create a customized proposal
-
+        **Previous Conversation Context:**
+        - Original Subject: {original_subject}
+        - We've already established contact and the prospect is interested in our services
+        
         **Email Purpose:**
         Ask for an overview of their event needs including:
         - Event type and purpose
@@ -219,19 +335,24 @@ class OutreachAgent:
 
         **Instructions:**
         Create a professional follow-up email that:
-        1. Thanks them for their positive response
-        2. Expresses enthusiasm about working together
-        3. Asks for key event details in a non-overwhelming way
-        4. Suggests a brief call or detailed email response
-        5. Maintains the relationship-building tone
+        1. References the previous conversation naturally (don't explicitly mention "as per our previous email")
+        2. Thanks them for their positive response and interest
+        3. Expresses enthusiasm about working together on their event
+        4. Asks for key event details in a non-overwhelming way
+        5. Suggests a brief call or detailed email response
+        6. Maintains a relationship-building tone
+        7. Does NOT use markdown, asterisks, or special formatting characters
+        8. Keeps it concise (3-4 short paragraphs maximum)
+        9. Ensures all newlines are properly escaped as \n in the JSON response
 
         Return ONLY a valid JSON object with two keys: "subject" and "body".
+        Make sure the JSON is properly formatted with escaped newlines.
         Use "Re: " prefix in subject to maintain email thread.
 
         Example Response:
         {{
             "subject": "Re: Event Planning Partnership - Next Steps",
-            "body": "Hi {prospect.name}, Thank you for your positive response..."
+            "body": "Hi {prospect.name},\n\nThank you for your interest in Rainmaker...\n\nBest regards,\n[Your Name]"
         }}
         """
 
@@ -380,30 +501,31 @@ class OutreachAgent:
             "You are an expert event planning sales representative sending a customized proposal. "
             "Your task is to write a professional email that accompanies a PDF proposal attachment. "
             "The tone should be confident, professional, and enthusiastic. You want to schedule a meeting "
-            "to discuss the proposal in detail. Include a clear call-to-action for scheduling a meeting."
+            "to discuss the proposal in detail. Include a clear call-to-action for scheduling a meeting. "
+            "Do not use markdown formatting, asterisks, or special characters in your response."
         )
 
         user_message = f"""
         Please draft a proposal email with PDF attachment.
 
-        **Prospect Information:**
+        Prospect Information:
         - Name: {prospect.name}
         - Company: {prospect.company_name or proposal.get('client_company', 'Your Company')}
         - Email: {prospect.email}
 
-        **Proposal Details:**
+        Proposal Details:
         - Event Type: {proposal.get('event_type', 'Corporate Event')}
         - Total Investment: ${proposal.get('total_investment', 25000):,}
         - Proposal ID: {proposal.get('proposal_id', 'PROP_001')}
 
-        **Email Purpose:**
+        Email Purpose:
         1. Introduce the attached customized proposal
         2. Highlight key benefits and value proposition
         3. Express enthusiasm about working together
         4. Request a meeting to discuss the proposal in detail
         5. Provide clear next steps
 
-        **Instructions:**
+        Instructions:
         Create a professional proposal email that:
         1. Thanks them for providing event details
         2. Introduces the attached proposal with excitement
@@ -415,6 +537,7 @@ class OutreachAgent:
         Return ONLY a valid JSON object with two keys: "subject" and "body".
         Use "Re: " prefix in subject to maintain email thread.
         Mention the PDF attachment in the email body.
+        Do not use markdown formatting, asterisks, or special characters in your response.
 
         Example Response:
         {{

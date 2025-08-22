@@ -84,6 +84,8 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
       }
 
       const result = await response.json()
+      // Add a small delay to show the generating animation
+      await new Promise(resolve => setTimeout(resolve, 2000))
       setProposalStage('generated')
       await loadProposalStatus() // Refresh status
       
@@ -118,6 +120,8 @@ export default function ProposalViewer({ workflowId, onComplete }: ProposalViewe
       }
 
       const result = await response.json()
+      // Add a small delay to show the sending animation
+      await new Promise(resolve => setTimeout(resolve, 2000))
       setProposalStage('sent')
       await loadProposalStatus() // Refresh status
       

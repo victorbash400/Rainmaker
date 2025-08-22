@@ -38,21 +38,33 @@ class GeminiService:
     """
     
     def __init__(self):
-        # Set up Google Cloud credentials
+        # Set up Google Cloud credentials with proper path handling
         import platform
+        
+        # Use absolute path based on platform
         if platform.system() == "Windows":
-            credentials_path = r"C:\Users\Victo\Desktop\Rainmaker\Rainmaker-backend\ascendant-woods-462020-n0-78d818c9658e.json"
+            service_account_path = r"C:\Users\Victo\Desktop\Rainmaker\Rainmaker-backend\ascendant-woods-462020-n0-78d818c9658e.json"
         else:
-            credentials_path = "/mnt/c/Users/Victo/Desktop/Rainmaker/Rainmaker-backend/ascendant-woods-462020-n0-78d818c9658e.json"
+            service_account_path = "/mnt/c/Users/Victo/Desktop/Rainmaker/Rainmaker-backend/ascendant-woods-462020-n0-78d818c9658e.json"
         
-        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = credentials_path
+        # Verify the file exists
+        if not os.path.exists(service_account_path):
+            # Try alternative path
+            alt_path = os.path.join(os.getcwd(), "ascendant-woods-462020-n0-78d818c9658e.json")
+            if os.path.exists(alt_path):
+                service_account_path = alt_path
+            else:
+                raise FileNotFoundError(f"Google service account file not found. Tried:\n1. {service_account_path}\n2. {alt_path}")
         
-        # Initialize Vertex AI
-        credentials, project = default()
-        self.project_id = project or "ascendant-woods-462020-n0"
+        # Set the credentials environment variable
+        os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = service_account_path
+        logger.info("Using Google service account file for Vertex AI", path=service_account_path)
         
-        # Try multiple regions - some models may not be available in all regions
-        self.location = "us-east1"  # Changed from us-central1
+        # Initialize credentials with required scopes
+        credentials, project = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+
+        self.project_id = project or settings.GOOGLE_CLOUD_PROJECT or "ascendant-woods-462020-n0"
+        self.location = settings.GOOGLE_CLOUD_LOCATION or "us-east1"
         
         vertexai.init(
             project=self.project_id,
@@ -301,6 +313,87 @@ class GeminiService:
             system_prompt=system_prompt,
             user_message=user_message
         )
+    
+    async def create_embedding(self, text: str, model: str = "gemini-embedding-001") -> List[float]:
+        """
+        Create text embeddings using Google Vertex AI Embedding API.
+        Uses the exact endpoint specification you provided.
+        
+        Args:
+            text: Text to embed
+            model: Embedding model to use (gemini-embedding-001)
+            
+        Returns:
+            Vector embedding as list of floats
+        """
+        try:
+            # Check rate limits
+            await self._check_rate_limits()
+            
+            import httpx
+            from google.auth import default
+            from google.auth.transport.requests import Request
+            
+            # Get access token for authentication with proper scopes
+            credentials, _ = default(scopes=['https://www.googleapis.com/auth/cloud-platform'])
+            request = Request()
+            credentials.refresh(request)
+            access_token = credentials.token
+            
+            # Prepare the API request exactly as you specified
+            url = f"https://us-central1-aiplatform.googleapis.com/v1/projects/{self.project_id}/locations/us-central1/publishers/google/models/{model}:predict"
+            
+            headers = {
+                "Authorization": f"Bearer {access_token}",
+                "Content-Type": "application/json"
+            }
+            
+            payload = {
+                "instances": [{"content": text}]
+            }
+            
+            start_time = time.time()
+            
+            # Make the API call
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                response = await client.post(url, json=payload, headers=headers)
+            
+            if response.status_code != 200:
+                raise Exception(f"Vertex AI API returned {response.status_code}: {response.text}")
+            
+            # Parse the response exactly as per your specification
+            response_data = response.json()
+            predictions = response_data.get("predictions", [])
+            
+            if not predictions or not predictions[0].get("embeddings"):
+                raise Exception("No embeddings in response")
+            
+            # Extract the embedding values
+            embedding_data = predictions[0]["embeddings"]
+            vector = embedding_data["values"]
+            token_count = embedding_data.get("statistics", {}).get("token_count", 0)
+            truncated = embedding_data.get("statistics", {}).get("truncated", False)
+            
+            logger.info(
+                "Vertex AI embedding generation successful",
+                model=model,
+                text_length=len(text),
+                token_count=token_count,
+                truncated=truncated,
+                vector_dimensions=len(vector),
+                response_time=time.time() - start_time
+            )
+            
+            return vector
+                
+        except Exception as e:
+            logger.error(
+                "Vertex AI embedding generation failed",
+                error=str(e),
+                model=model,
+                text_length=len(text)
+            )
+            raise Exception(f"Vertex AI embedding failed: {str(e)}")
     
     async def _check_rate_limits(self):
         """Check and enforce rate limits"""

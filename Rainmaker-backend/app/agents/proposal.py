@@ -140,16 +140,17 @@ class ProposalAgent:
             "You are an expert event planning analyst. Analyze the provided raw outreach data "
             "and extract key event requirements and insights. Focus on understanding the client's "
             "vision, requirements, budget indicators, and event scale. Be intelligent about inferring "
-            "missing details based on context clues."
+            "missing details based on context clues. "
+            "Do not use markdown formatting, asterisks, or special characters in your response."
         )
         
         user_message = f"""
         Analyze this raw outreach data and provide structured insights:
-        
-        **Raw Data:**
+
+        Raw Data:
         {json.dumps(raw_data, indent=2)}
-        
-        **Instructions:**
+
+        Instructions:
         Extract and infer the following information. Use intelligent assumptions based on context:
         - Event type and purpose
         - Expected guest count (infer from company size, event type)
@@ -157,7 +158,7 @@ class ProposalAgent:
         - Key requirements and client vision
         - Timeline preferences
         - Special considerations
-        
+
         Return ONLY a valid JSON object with these keys:
         {{
             "event_type": "specific event type",
@@ -168,6 +169,8 @@ class ProposalAgent:
             "key_requirements": ["requirement1", "requirement2", ...],
             "special_considerations": ["consideration1", "consideration2", ...]
         }}
+        
+        Important: Do not use markdown formatting, asterisks, or special characters in your response text.
         """
         
         try:
@@ -223,7 +226,7 @@ class ProposalAgent:
                 "description": "Enhanced experience with premium touches",
                 "recommended": True,
                 "features": [
-                    "Everything in Essential, plus:",
+                    "All Essential package features plus:",
                     "Premium catering with dietary options",
                     "Enhanced decor & ambient lighting",
                     "Professional photography (4 hours)",
@@ -238,7 +241,7 @@ class ProposalAgent:
                 "per_person": int(base_per_person * 1.3),
                 "description": "Luxury experience with white-glove service",
                 "features": [
-                    "Everything in Signature, plus:",
+                    "All Signature package features plus:",
                     "Luxury catering with chef stations",
                     "Custom decor & floral arrangements",
                     "Full photography & videography",

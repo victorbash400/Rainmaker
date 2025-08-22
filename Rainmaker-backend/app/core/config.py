@@ -29,15 +29,14 @@ class Settings(BaseSettings):
         password = self.TIDB_PASSWORD.get_secret_value()
         return f"mysql+pymysql://{self.TIDB_USER}:{password}@{self.TIDB_HOST}:{self.TIDB_PORT}/{self.TIDB_DATABASE}"
     
-    # External APIs
-    OPENAI_API_KEY: SecretStr
+    # External APIs - NO OPENAI (using Google Vertex AI)
     SONAR_API_KEY: Optional[SecretStr] = None
     SENDGRID_API_KEY: Optional[SecretStr] = None
     CLEARBIT_API_KEY: Optional[SecretStr] = None
     GOOGLE_CALENDAR_CREDENTIALS: Optional[SecretStr] = None
     LINKEDIN_API_KEY: Optional[SecretStr] = None
     GOOGLE_APPLICATION_CREDENTIALS: Optional[str] = None
-    GOOGLE_SERVICE_ACCOUNT_FILE: Optional[str] = None
+    GOOGLE_SERVICE_ACCOUNT_FILE: str = r"C:\Users\Victo\Desktop\Rainmaker\Rainmaker-backend\ascendant-woods-462020-n0-78d818c9658e.json"  # Required path to service account
     GOOGLE_CLOUD_PROJECT: Optional[str] = None
     GOOGLE_CLOUD_LOCATION: Optional[str] = None
     
