@@ -185,8 +185,8 @@ class DatabaseMCP:
                 start_time = datetime.now()
                 results = []
                 
-                async with AsyncSessionLocal() as session:
-                    async with session.begin():
+                with SessionLocal() as session:
+                    with session.begin():
                         for i, operation in enumerate(operations):
                             op_type = operation.get("type")
                             op_query = operation.get("query")
@@ -198,7 +198,7 @@ class DatabaseMCP:
                             if not self._is_safe_query(op_query):
                                 raise ValueError(f"Operation {i}: unsafe query detected")
                             
-                            result = await session.execute(text(op_query), op_params)
+                            result = session.execute(text(op_query), op_params)
                             
                             if op_type == "select":
                                 op_result = [dict(row._mapping) for row in result.fetchall()]
@@ -279,12 +279,12 @@ class DatabaseMCP:
                 
                 # Test query operations
                 try:
-                    async with AsyncSessionLocal() as session:
+                    with SessionLocal() as session:
                         # Count tables
                         if "sqlite" in settings.tidb_url:
-                            result = await session.execute(text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'"))
+                            result = session.execute(text("SELECT COUNT(*) FROM sqlite_master WHERE type='table'"))
                         else:
-                            result = await session.execute(text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"))
+                            result = session.execute(text("SELECT COUNT(*) FROM information_schema.tables WHERE table_schema = DATABASE()"))
                         
                         health_status["table_count"] = result.scalar()
                         health_status["query_test"] = True
@@ -295,7 +295,7 @@ class DatabaseMCP:
                         
                         for table in tables_to_check:
                             try:
-                                count_result = await session.execute(text(f"SELECT COUNT(*) FROM {table}"))
+                                count_result = session.execute(text(f"SELECT COUNT(*) FROM {table}"))
                                 table_stats[table] = count_result.scalar()
                             except Exception as e:
                                 table_stats[table] = f"Error: {str(e)}"
@@ -449,13 +449,13 @@ class DatabaseMCP:
     ) -> Union[List[Dict], Dict, Any, None]:
         """Execute query with monitoring and timeout"""
         
-        async with AsyncSessionLocal() as session:
+        with SessionLocal() as session:
             try:
                 # Set query timeout if supported
                 if "mysql" in settings.tidb_url:
-                    await session.execute(text(f"SET SESSION max_execution_time = {timeout * 1000}"))
+                    session.execute(text(f"SET SESSION max_execution_time = {timeout * 1000}"))
                 
-                result = await session.execute(text(query), parameters)
+                result = session.execute(text(query), parameters)
                 
                 if fetch_mode == "all":
                     return [dict(row._mapping) for row in result.fetchall()]
@@ -496,10 +496,10 @@ class DatabaseMCP:
         else:  # on_conflict == "error"
             query = f"INSERT INTO {table_name} ({', '.join(columns)}) VALUES ({placeholders})"
         
-        async with AsyncSessionLocal() as session:
-            async with session.begin():
+        with SessionLocal() as session:
+            with session.begin():
                 for record in records:
-                    await session.execute(text(query), record)
+                    session.execute(text(query), record)
                 
         return len(records)
     
@@ -515,31 +515,31 @@ class DatabaseMCP:
         test_prospect_id = None
         
         try:
-            async with AsyncSessionLocal() as session:
-                async with session.begin():
+            with SessionLocal() as session:
+                with session.begin():
                     # Create
                     insert_query = """
                     INSERT INTO prospects (prospect_type, name, email, source, status)
                     VALUES ('individual', 'Test CRUD', 'crud@test.com', 'health_check', 'discovered')
                     """
-                    result = await session.execute(text(insert_query))
+                    result = session.execute(text(insert_query))
                     test_prospect_id = result.lastrowid
                     crud_results["create"] = True
                     
                     # Read
                     select_query = "SELECT * FROM prospects WHERE id = :id"
-                    result = await session.execute(text(select_query), {"id": test_prospect_id})
+                    result = session.execute(text(select_query), {"id": test_prospect_id})
                     row = result.fetchone()
                     crud_results["read"] = row is not None
                     
                     # Update
                     update_query = "UPDATE prospects SET name = 'Updated CRUD Test' WHERE id = :id"
-                    result = await session.execute(text(update_query), {"id": test_prospect_id})
+                    result = session.execute(text(update_query), {"id": test_prospect_id})
                     crud_results["update"] = result.rowcount > 0
                     
                     # Delete
                     delete_query = "DELETE FROM prospects WHERE id = :id"
-                    result = await session.execute(text(delete_query), {"id": test_prospect_id})
+                    result = session.execute(text(delete_query), {"id": test_prospect_id})
                     crud_results["delete"] = result.rowcount > 0
                     
         except Exception as e:
@@ -547,12 +547,12 @@ class DatabaseMCP:
             # Clean up if needed
             if test_prospect_id:
                 try:
-                    async with AsyncSessionLocal() as session:
-                        await session.execute(
+                    with SessionLocal() as session:
+                        session.execute(
                             text("DELETE FROM prospects WHERE id = :id"), 
                             {"id": test_prospect_id}
                         )
-                        await session.commit()
+                        session.commit()
                 except:
                     pass
         
@@ -673,23 +673,23 @@ class DatabaseMCP:
             if not self._is_safe_query(query):
                 raise ValueError("Unsafe query detected")
             
-            async with AsyncSessionLocal() as session:
+            with SessionLocal() as session:
                 try:
                     if parameters:
                         if isinstance(parameters, list):
                             # For positional parameters with ?, convert to tuple
                             if "?" in query:
-                                result = await session.execute(text(query), tuple(parameters))
+                                result = session.execute(text(query), tuple(parameters))
                             else:
                                 # For named parameters, convert list to dict if needed
-                                result = await session.execute(text(query), parameters)
+                                result = session.execute(text(query), parameters)
                         else:
                             # For named parameters (dict)
-                            result = await session.execute(text(query), parameters)
+                            result = session.execute(text(query), parameters)
                     else:
-                        result = await session.execute(text(query))
+                        result = session.execute(text(query))
                     
-                    await session.commit()
+                    session.commit()
                     
                     # Handle different fetch modes
                     if fetch_mode == "one":
@@ -709,7 +709,7 @@ class DatabaseMCP:
                     )
                     
                 except SQLAlchemyError as e:
-                    await session.rollback()
+                    session.rollback()
                     raise e
                     
         except Exception as e:

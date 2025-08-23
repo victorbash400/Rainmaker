@@ -1,0 +1,29 @@
+{
+  "enabled": true,
+  "name": "Documentation Sync",
+  "description": "Monitors all source files in the repository and triggers documentation updates when code changes are detected",
+  "version": "1",
+  "when": {
+    "type": "fileEdited",
+    "patterns": [
+      "Rainmaker-backend/app/**/*.py",
+      "Rainmaker-backend/*.py",
+      "Rainmaker-frontend/src/**/*.ts",
+      "Rainmaker-frontend/src/**/*.tsx",
+      "Rainmaker-frontend/*.ts",
+      "Rainmaker-frontend/*.js",
+      "shared/**/*.ts",
+      "scripts/*.sh",
+      "docker-compose.yml",
+      "Rainmaker-backend/requirements.txt",
+      "Rainmaker-frontend/package.json",
+      "Rainmaker-backend/alembic.ini",
+      "Rainmaker-backend/main.py",
+      "Rainmaker-frontend/vite.config.ts"
+    ]
+  },
+  "then": {
+    "type": "askAgent",
+    "prompt": "Source code files have been modified in the Rainmaker repository. Please review the changes and update the documentation accordingly. Focus on:\n\n1. Update the README.md if there are significant architectural or setup changes\n2. Update files in the /docs folder (API.md, DEPLOYMENT.md, DEVELOPMENT.md) based on the specific changes\n3. Ensure API documentation reflects any new endpoints or modified request/response schemas\n4. Update deployment instructions if infrastructure or configuration changes occurred\n5. Modify development setup instructions if new dependencies or tools were added\n\nPlease analyze the changed files and determine which documentation needs updates, then make the necessary changes to keep the docs synchronized with the current codebase."
+  }
+}

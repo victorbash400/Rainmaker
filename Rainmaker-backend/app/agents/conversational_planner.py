@@ -283,7 +283,7 @@ class ConversationalPlannerAgent:
             # All requirements met - check if user confirmed
             if self._user_confirmed_to_start(conversation):
                 completion_percentage = 1.0
-                next_phase = "complete"
+                next_phase = "approval_confirmation"
             else:
                 completion_percentage = 0.9
                 next_phase = "approval_confirmation"

@@ -536,7 +536,7 @@ class CampaignCoordinatorAgent:
             enriched_prospects = execution_state.get("enriched_prospects", [])
             if not enriched_prospects:
                 logger.warning("No enriched prospects available for outreach")
-                execution_state["current_phase"] = "completed"
+                execution_state["current_phase"] = "execution_complete"
                 execution_state["status"] = "completed"
                 execution_state["execution_completed_at"] = datetime.now()
                 self._broadcast_status_update(plan.plan_id, execution_state, force=True)
@@ -576,7 +576,7 @@ class CampaignCoordinatorAgent:
                 self._broadcast_status_update(plan.plan_id, execution_state, force=True)
             else:
                 logger.warning("Outreach workflow did not pause as expected")
-                execution_state["current_phase"] = "completed"
+                execution_state["current_phase"] = "execution_complete"
                 execution_state["status"] = "completed"
                 execution_state["execution_completed_at"] = datetime.now()
                 self._broadcast_status_update(plan.plan_id, execution_state, force=True)

@@ -7,16 +7,16 @@ import asyncio
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.db.session import AsyncSessionLocal
+from app.db.session import SessionLocal
 from app.db.models import User
 from app.core.security import get_password_hash
 
 
 async def create_initial_users():
     """Create initial users for development"""
-    async with AsyncSessionLocal() as db:
+    with SessionLocal() as db:
         # Check if admin user exists
-        result = await db.execute(select(User).where(User.email == "admin@rainmaker.com"))
+        result = db.execute(select(User).where(User.email == "admin@rainmaker.com"))
         admin_user = result.scalar_one_or_none()
         
         if not admin_user:
@@ -34,7 +34,7 @@ async def create_initial_users():
             print("ℹ️  Admin user already exists")
         
         # Check if test user exists
-        result = await db.execute(select(User).where(User.email == "victorbash400@outlook.com"))
+        result = db.execute(select(User).where(User.email == "victorbash400@outlook.com"))
         test_user = result.scalar_one_or_none()
         
         if not test_user:
@@ -51,7 +51,7 @@ async def create_initial_users():
         else:
             print("ℹ️  Test user already exists")
         
-        await db.commit()
+        db.commit()
         print("🎉 User seeding complete!")
 
 

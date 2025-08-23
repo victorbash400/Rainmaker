@@ -144,7 +144,7 @@ async def schedule_meeting(
             if plan_id:
                 logger.info("Marking campaign as completed after meeting schedule", plan_id=plan_id)
                 execution_state = coordinator.executing_campaigns[plan_id]
-                execution_state["current_phase"] = "completed"
+                execution_state["current_phase"] = "execution_complete"
                 execution_state["status"] = "completed"
                 execution_state["execution_completed_at"] = datetime.now()
                 execution_state["metrics"]["meetings_scheduled"] = execution_state["metrics"].get("meetings_scheduled", 0) + 1
